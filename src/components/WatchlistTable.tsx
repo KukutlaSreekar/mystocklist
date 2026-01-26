@@ -89,6 +89,7 @@ export function WatchlistTable({
             <TableHead className="font-semibold text-foreground">Market</TableHead>
             <TableHead className="font-semibold text-foreground text-right">Price</TableHead>
             <TableHead className="font-semibold text-foreground text-right">Change</TableHead>
+            <TableHead className="font-semibold text-foreground text-center">Status</TableHead>
             {!readOnly && <TableHead className="w-[100px]"></TableHead>}
           </TableRow>
         </TableHeader>
@@ -136,25 +137,10 @@ export function WatchlistTable({
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className="flex flex-col gap-1">
-                    <Badge variant="outline" className="font-medium bg-muted/50 w-fit">
-                      <span className="mr-1 text-muted-foreground">{currencySymbol}</span>
-                      {market}
-                    </Badge>
-                    {isMarketClosed && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="flex items-center gap-1 text-xs text-amber-500 cursor-help">
-                            <Clock className="w-3 h-3" />
-                            <span>Closed</span>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Market closed • Last updated: {formatLastUpdated(price?.lastUpdated)}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
+                  <Badge variant="outline" className="font-medium bg-muted/50 w-fit">
+                    <span className="mr-1 text-muted-foreground">{currencySymbol}</span>
+                    {market}
+                  </Badge>
                 </TableCell>
                 <TableCell className="text-right">
                   {pricesLoading ? (
@@ -201,6 +187,32 @@ export function WatchlistTable({
                     </div>
                   ) : (
                     <span className="text-muted-foreground text-sm">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-center">
+                  {pricesLoading ? (
+                    <Skeleton className="h-5 w-16 mx-auto" />
+                  ) : price?.isMarketClosed ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-warning/10 text-warning cursor-help">
+                          <Clock className="w-3 h-3" />
+                          Closed
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">
+                          Market closed • Last updated: {price.lastUpdated ? new Date(price.lastUpdated).toLocaleString() : 'N/A'}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : price ? (
+                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-success/10 text-success">
+                      <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                      Live
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">—</span>
                   )}
                 </TableCell>
                 {!readOnly && (
