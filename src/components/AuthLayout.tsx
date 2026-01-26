@@ -1,7 +1,6 @@
 import { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { TrendingUp } from "lucide-react";
-
 interface AuthLayoutProps {
   children: ReactNode;
   title: string;
@@ -10,17 +9,15 @@ interface AuthLayoutProps {
   footerLinkText: string;
   footerLinkHref: string;
 }
-
 export function AuthLayout({
   children,
   title,
   subtitle,
   footerText,
   footerLinkText,
-  footerLinkHref,
+  footerLinkHref
 }: AuthLayoutProps) {
-  return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+  return <div className="min-h-screen flex items-center justify-center p-4 bg-background">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/10 rounded-full blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-accent/10 rounded-full blur-3xl" />
@@ -32,7 +29,7 @@ export function AuthLayout({
             <div className="p-2 rounded-xl gradient-primary">
               <TrendingUp className="w-6 h-6 text-primary-foreground" />
             </div>
-            <span className="text-xl font-bold">StockWatch</span>
+            <span className="text-xl font-bold">MyStockList</span>
           </Link>
           <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
           <p className="mt-2 text-muted-foreground">{subtitle}</p>
@@ -42,14 +39,10 @@ export function AuthLayout({
 
         <p className="text-center text-sm text-muted-foreground">
           {footerText}{" "}
-          <Link
-            to={footerLinkHref}
-            className="font-medium text-primary hover:text-primary/80 transition-colors"
-          >
+          <Link to={footerLinkHref} className="font-medium text-primary hover:text-primary/80 transition-colors">
             {footerLinkText}
           </Link>
         </p>
       </div>
-    </div>
-  );
+    </div>;
 }
