@@ -80,6 +80,39 @@ export type Database = {
         }
         Relationships: []
       }
+      sync_history: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          market: string
+          started_at: string
+          status: string
+          symbols_count: number
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          market: string
+          started_at?: string
+          status?: string
+          symbols_count?: number
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          market?: string
+          started_at?: string
+          status?: string
+          symbols_count?: number
+        }
+        Relationships: []
+      }
       watchlists: {
         Row: {
           company_name: string | null
