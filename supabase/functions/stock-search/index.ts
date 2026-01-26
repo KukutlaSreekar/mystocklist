@@ -121,13 +121,21 @@ serve(async (req) => {
       );
     }
 
-    // For very short queries (1-2 chars), filter from popular stocks first
+    // PREFIX-ONLY MATCHING: Only match stocks where symbol or name STARTS with the query
     const popularStocks = POPULAR_STOCKS[market] || [];
+    
+    // Helper function for prefix matching
+    const matchesPrefix = (stock: { symbol: string; name: string }) => {
+      const symbolMatch = stock.symbol.toLowerCase().startsWith(normalizedQuery);
+      const nameMatch = stock.name.toLowerCase().startsWith(normalizedQuery) ||
+        // Also match if any word in the name starts with the query
+        stock.name.toLowerCase().split(' ').some(word => word.startsWith(normalizedQuery));
+      return symbolMatch || nameMatch;
+    };
+
+    // For short queries, use popular stocks with prefix matching
     if (normalizedQuery.length <= 2) {
-      const filteredPopular = popularStocks.filter(s => 
-        s.symbol.toLowerCase().startsWith(normalizedQuery) ||
-        s.name.toLowerCase().includes(normalizedQuery)
-      ).map(s => ({
+      const filteredPopular = popularStocks.filter(matchesPrefix).map(s => ({
         symbol: s.symbol,
         name: s.name,
         displaySymbol: s.symbol + (MARKET_SUFFIX[market] || ''),
@@ -144,11 +152,8 @@ serve(async (req) => {
 
     const apiKey = Deno.env.get('FINNHUB_API_KEY');
     if (!apiKey) {
-      // Fallback to popular stocks if no API key
-      const filteredPopular = popularStocks.filter(s => 
-        s.symbol.toLowerCase().includes(normalizedQuery) ||
-        s.name.toLowerCase().includes(normalizedQuery)
-      ).map(s => ({
+      // Fallback to popular stocks with prefix matching
+      const filteredPopular = popularStocks.filter(matchesPrefix).map(s => ({
         symbol: s.symbol,
         name: s.name,
         displaySymbol: s.symbol + (MARKET_SUFFIX[market] || ''),
@@ -219,11 +224,13 @@ serve(async (req) => {
       market
     }));
 
-    // Merge popular stocks that match with API results
-    const popularMatches = popularStocks.filter(s => 
-      s.symbol.toLowerCase().includes(normalizedQuery) ||
-      s.name.toLowerCase().includes(normalizedQuery)
-    ).map(s => ({
+    // Merge popular stocks that match with PREFIX-ONLY matching
+    const popularMatches = popularStocks.filter(s => {
+      const symbolMatch = s.symbol.toLowerCase().startsWith(normalizedQuery);
+      const nameMatch = s.name.toLowerCase().startsWith(normalizedQuery) ||
+        s.name.toLowerCase().split(' ').some(word => word.startsWith(normalizedQuery));
+      return symbolMatch || nameMatch;
+    }).map(s => ({
       symbol: s.symbol,
       name: s.name,
       displaySymbol: s.symbol + suffix,
