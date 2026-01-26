@@ -8,6 +8,8 @@ export interface StockPrice {
   changePercent: number;
   previousClose: number;
   market?: string;
+  isMarketClosed?: boolean;
+  lastUpdated?: number;
 }
 
 export function useStockPrices(watchlist: WatchlistItem[] | undefined) {
