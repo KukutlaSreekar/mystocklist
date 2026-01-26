@@ -53,6 +53,7 @@ export function useAddStock() {
       company_name?: string;
       notes?: string;
       target_price?: number;
+      market?: string;
     }) => {
       if (!user) throw new Error("Not authenticated");
 
@@ -64,6 +65,7 @@ export function useAddStock() {
           company_name: stock.company_name,
           notes: stock.notes,
           target_price: stock.target_price,
+          market: stock.market || 'NYSE',
         })
         .select()
         .single();
@@ -98,6 +100,7 @@ export function useUpdateStock() {
       company_name?: string;
       notes?: string;
       target_price?: number | null;
+      market?: string;
     }) => {
       const { data, error } = await supabase
         .from("watchlists")
