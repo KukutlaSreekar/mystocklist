@@ -19,6 +19,7 @@ export type WatchlistItem = {
   company_name: string | null;
   notes: string | null;
   target_price: number | null;
+  market: string;
   created_at: string;
   updated_at: string;
 };
