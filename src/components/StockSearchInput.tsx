@@ -14,6 +14,53 @@ interface StockSearchInputProps {
   placeholder?: string;
 }
 
+// Helper to highlight matching prefix in text
+function HighlightMatch({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  
+  // Check if text starts with query
+  if (lowerText.startsWith(lowerQuery)) {
+    return (
+      <>
+        <span className="text-primary font-semibold">{text.slice(0, query.length)}</span>
+        {text.slice(query.length)}
+      </>
+    );
+  }
+  
+  // Check if any word starts with query
+  const words = text.split(' ');
+  let foundIndex = -1;
+  let charIndex = 0;
+  
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].toLowerCase().startsWith(lowerQuery)) {
+      foundIndex = i;
+      break;
+    }
+    charIndex += words[i].length + 1; // +1 for space
+  }
+  
+  if (foundIndex >= 0) {
+    const beforeMatch = text.slice(0, charIndex);
+    const matchPart = text.slice(charIndex, charIndex + query.length);
+    const afterMatch = text.slice(charIndex + query.length);
+    
+    return (
+      <>
+        {beforeMatch}
+        <span className="text-primary font-semibold">{matchPart}</span>
+        {afterMatch}
+      </>
+    );
+  }
+  
+  return <>{text}</>;
+}
+
 export function StockSearchInput({
   market,
   value,
@@ -24,7 +71,7 @@ export function StockSearchInput({
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState(value);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const debouncedQuery = useDebounce(inputValue, 200); // Faster debounce
+  const debouncedQuery = useDebounce(inputValue, 150); // Even faster debounce
   const { results, isLoading, search, clearResults } = useStockSearch();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -140,39 +187,42 @@ export function StockSearchInput({
       </div>
 
       {isOpen && results.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-xl max-h-72 overflow-auto animate-fade-in">
-          <div className="p-1">
+        <div className="absolute z-50 w-full mt-1.5 bg-popover border border-border rounded-xl shadow-2xl max-h-80 overflow-auto animate-in fade-in-0 zoom-in-95 duration-150">
+          <div className="p-1.5">
             {results.map((result, index) => (
               <button
                 key={`${result.symbol}-${index}`}
                 type="button"
                 className={cn(
-                  "w-full px-3 py-2.5 text-left rounded-md transition-colors",
-                  "flex items-center justify-between gap-2",
+                  "w-full px-3 py-3 text-left rounded-lg transition-all duration-100",
+                  "flex items-center justify-between gap-3",
                   highlightedIndex === index 
-                    ? "bg-primary/10 text-foreground" 
+                    ? "bg-primary/10 scale-[1.01] shadow-sm" 
                     : "hover:bg-muted/50"
                 )}
                 onClick={() => handleSelect(result)}
                 onMouseEnter={() => setHighlightedIndex(index)}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <div className={cn(
+                    "w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-colors",
+                    highlightedIndex === index ? "bg-primary/20" : "bg-primary/10"
+                  )}>
                     <span className="font-mono font-bold text-xs text-primary">
                       {result.symbol.slice(0, 2)}
                     </span>
                   </div>
                   <div className="min-w-0">
                     <span className="font-mono font-semibold text-sm block">
-                      {result.symbol}
+                      <HighlightMatch text={result.symbol} query={inputValue} />
                     </span>
                     <span className="text-xs text-muted-foreground truncate block">
-                      {result.name}
+                      <HighlightMatch text={result.name} query={inputValue} />
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md font-medium">
                     {currencySymbol} {result.market}
                   </span>
                 </div>
@@ -183,9 +233,9 @@ export function StockSearchInput({
       )}
 
       {isOpen && !isLoading && results.length === 0 && debouncedQuery.length >= 1 && (
-        <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-xl p-4">
+        <div className="absolute z-50 w-full mt-1.5 bg-popover border border-border rounded-xl shadow-2xl p-6 animate-in fade-in-0 zoom-in-95 duration-150">
           <p className="text-sm text-muted-foreground text-center">
-            No stocks found for "{debouncedQuery}"
+            No stocks starting with "<span className="font-mono font-semibold text-foreground">{debouncedQuery}</span>"
           </p>
         </div>
       )}

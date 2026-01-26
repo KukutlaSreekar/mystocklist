@@ -2,7 +2,7 @@ import { WatchlistItem } from "@/lib/supabase";
 import { StockPrice } from "@/hooks/useStockPrices";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Pencil, Trash2, TrendingUp, TrendingDown, Minus, AlertCircle } from "lucide-react";
+import { Pencil, Trash2, TrendingUp, TrendingDown, Minus, AlertCircle, Clock } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getCurrencySymbol, formatNumber } from "@/lib/marketConfig";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface WatchlistTableProps {
   watchlist: WatchlistItem[];
@@ -33,6 +38,23 @@ interface WatchlistTableProps {
   readOnly?: boolean;
   onEdit?: (stock: WatchlistItem) => void;
   onDelete?: (id: string) => void;
+}
+
+function formatLastUpdated(timestamp: number | undefined): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 export function WatchlistTable({
@@ -77,6 +99,7 @@ export function WatchlistTable({
             const isNegative = price?.change < 0;
             const market = stock.market || 'NYSE';
             const currencySymbol = getCurrencySymbol(market);
+            const isMarketClosed = price?.isMarketClosed;
 
             return (
               <TableRow 
@@ -113,18 +136,40 @@ export function WatchlistTable({
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline" className="font-medium bg-muted/50">
-                    <span className="mr-1 text-muted-foreground">{currencySymbol}</span>
-                    {market}
-                  </Badge>
+                  <div className="flex flex-col gap-1">
+                    <Badge variant="outline" className="font-medium bg-muted/50 w-fit">
+                      <span className="mr-1 text-muted-foreground">{currencySymbol}</span>
+                      {market}
+                    </Badge>
+                    {isMarketClosed && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center gap-1 text-xs text-amber-500 cursor-help">
+                            <Clock className="w-3 h-3" />
+                            <span>Closed</span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Market closed • Last updated: {formatLastUpdated(price?.lastUpdated)}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell className="text-right">
                   {pricesLoading ? (
                     <Skeleton className="h-5 w-20 ml-auto" />
                   ) : price ? (
-                    <span className="font-semibold tabular-nums text-foreground">
-                      {currencySymbol}{formatNumber(price.price, market)}
-                    </span>
+                    <div className="flex flex-col items-end">
+                      <span className="font-semibold tabular-nums text-foreground">
+                        {currencySymbol}{formatNumber(price.price, market)}
+                      </span>
+                      {isMarketClosed && price.lastUpdated && (
+                        <span className="text-xs text-muted-foreground">
+                          {formatLastUpdated(price.lastUpdated)}
+                        </span>
+                      )}
+                    </div>
                   ) : (
                     <div className="flex items-center justify-end gap-1 text-muted-foreground">
                       <AlertCircle className="w-3 h-3" />

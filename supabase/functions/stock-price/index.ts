@@ -79,6 +79,8 @@ serve(async (req) => {
       changePercent: number;
       previousClose: number;
       market: string;
+      isMarketClosed?: boolean;
+      lastUpdated?: number;
     }> = {};
 
     // Fetch prices for each symbol with batching
@@ -114,13 +116,20 @@ serve(async (req) => {
             const data = await response.json();
             
             // Finnhub quote response: c = current, d = change, dp = change percent, pc = previous close
-            if (data.c && data.c > 0) {
+            // IMPORTANT: Always show last available price even if market is closed
+            // When market is closed, 'c' might be 0 but 'pc' (previous close) has the last price
+            const currentPrice = data.c && data.c > 0 ? data.c : data.pc;
+            const isMarketClosed = !data.c || data.c === 0 || data.t === 0;
+            
+            if (currentPrice && currentPrice > 0) {
               const priceData = {
-                price: data.c,
+                price: currentPrice,
                 change: data.d || 0,
                 changePercent: data.dp || 0,
-                previousClose: data.pc || 0,
-                market: stockMarket
+                previousClose: data.pc || currentPrice,
+                market: stockMarket,
+                isMarketClosed: isMarketClosed,
+                lastUpdated: data.t ? data.t * 1000 : Date.now() // Unix timestamp in ms
               };
               
               prices[symbol] = priceData;
