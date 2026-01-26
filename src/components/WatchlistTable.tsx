@@ -57,6 +57,12 @@ function formatLastUpdated(timestamp: number | undefined): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+function formatTime(timestamp: number | undefined): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
 export function WatchlistTable({
   watchlist,
   prices,
@@ -195,14 +201,21 @@ export function WatchlistTable({
                   ) : price?.isMarketClosed ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-warning/10 text-warning cursor-help">
-                          <Clock className="w-3 h-3" />
-                          Closed
+                        <div className="inline-flex flex-col items-center gap-0.5 cursor-help">
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-warning/10 text-warning">
+                            <Clock className="w-3 h-3" />
+                            Closed
+                          </div>
+                          {price.lastUpdated && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {formatTime(price.lastUpdated)}
+                            </span>
+                          )}
                         </div>
                       </TooltipTrigger>
                       <TooltipContent>
                         <p className="text-xs">
-                          Market closed • Last updated: {price.lastUpdated ? new Date(price.lastUpdated).toLocaleString() : 'N/A'}
+                          Market closed • Last trade: {price.lastUpdated ? new Date(price.lastUpdated).toLocaleString() : 'N/A'}
                         </p>
                       </TooltipContent>
                     </Tooltip>

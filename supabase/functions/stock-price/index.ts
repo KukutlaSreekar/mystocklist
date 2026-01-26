@@ -5,37 +5,22 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Fallback prices for when API fails (market closed or rate limited)
-// These are sample prices for demonstration - in production, use a paid API or cache historical data
-const FALLBACK_PRICES: Record<string, { price: number; previousClose: number }> = {
-  // NSE stocks (INR)
-  'RELIANCE': { price: 2456.75, previousClose: 2445.30 },
-  'TCS': { price: 3890.50, previousClose: 3875.20 },
-  'INFY': { price: 1567.25, previousClose: 1558.80 },
-  'HDFCBANK': { price: 1678.90, previousClose: 1665.45 },
-  'ICICIBANK': { price: 1089.35, previousClose: 1082.50 },
-  'SBIN': { price: 789.60, previousClose: 785.20 },
-  'BHARTIARTL': { price: 1234.50, previousClose: 1228.75 },
-  'ITC': { price: 456.80, previousClose: 454.30 },
-  'KOTAKBANK': { price: 1890.25, previousClose: 1882.60 },
-  'LT': { price: 3456.70, previousClose: 3445.85 },
-  // US stocks (USD)
-  'AAPL': { price: 178.52, previousClose: 177.30 },
-  'GOOGL': { price: 141.80, previousClose: 140.95 },
-  'MSFT': { price: 378.91, previousClose: 377.45 },
-  'AMZN': { price: 178.25, previousClose: 176.80 },
-  'TSLA': { price: 248.50, previousClose: 245.30 },
-  'NVDA': { price: 495.22, previousClose: 492.80 },
-  'META': { price: 505.75, previousClose: 503.20 },
-  'JPM': { price: 195.40, previousClose: 194.15 },
-  'V': { price: 280.35, previousClose: 279.50 },
-  'JNJ': { price: 156.80, previousClose: 156.20 },
-};
+// In-memory cache with extended TTL for market closed scenarios
+// This stores REAL prices from successful API calls
+const priceCache = new Map<string, { data: PriceData; timestamp: number }>();
+const CACHE_TTL_LIVE = 30 * 1000; // 30 seconds when market is open
+const CACHE_TTL_CLOSED = 24 * 60 * 60 * 1000; // 24 hours for closed market data
+const MAX_RETRIES = 2;
 
-// Simple in-memory cache
-const cache = new Map<string, { data: unknown; timestamp: number }>();
-const CACHE_TTL = 30 * 1000; // 30 seconds for price data
-const MAX_RETRIES = 1; // Reduced retries for faster fallback
+interface PriceData {
+  price: number;
+  change: number;
+  changePercent: number;
+  previousClose: number;
+  market: string;
+  isMarketClosed: boolean;
+  lastUpdated: number;
+}
 
 // Market suffix mapping
 const MARKET_SUFFIX: Record<string, string> = {
@@ -61,33 +46,15 @@ const MARKET_SUFFIX: Record<string, string> = {
   TADAWUL: '.SR',
 };
 
-function getFallbackPrice(symbol: string, market: string) {
-  const fallback = FALLBACK_PRICES[symbol];
-  if (fallback) {
-    const change = fallback.price - fallback.previousClose;
-    const changePercent = (change / fallback.previousClose) * 100;
-    return {
-      price: fallback.price,
-      change: Number(change.toFixed(2)),
-      changePercent: Number(changePercent.toFixed(2)),
-      previousClose: fallback.previousClose,
-      market,
-      isMarketClosed: true,
-      lastUpdated: Date.now()
-    };
-  }
-  return null;
-}
-
 async function fetchWithRetry(url: string, retries = MAX_RETRIES): Promise<Response> {
   for (let i = 0; i <= retries; i++) {
     try {
       const response = await fetch(url);
       if (response.ok || i === retries) return response;
-      await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 100));
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 200));
     } catch (error) {
       if (i === retries) throw error;
-      await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 100));
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 200));
     }
   }
   throw new Error('Max retries exceeded');
@@ -117,15 +84,7 @@ serve(async (req) => {
       );
     }
 
-    const prices: Record<string, { 
-      price: number; 
-      change: number; 
-      changePercent: number;
-      previousClose: number;
-      market: string;
-      isMarketClosed: boolean;
-      lastUpdated: number;
-    }> = {};
+    const prices: Record<string, PriceData> = {};
 
     // Fetch prices for each symbol with batching
     const batchSize = 5;
@@ -139,13 +98,19 @@ serve(async (req) => {
           // Build the correct symbol for Finnhub
           const suffix = MARKET_SUFFIX[stockMarket] || '';
           const finnhubSymbol = suffix ? `${symbol}${suffix}` : symbol;
-
-          // Check cache
           const cacheKey = `price:${finnhubSymbol}`;
-          const cached = cache.get(cacheKey);
-          if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-            prices[symbol] = cached.data as typeof prices[string];
-            return;
+
+          // Check if we have recent cached data
+          const cached = priceCache.get(cacheKey);
+          const now = Date.now();
+          
+          // Use shorter TTL for live data, longer for closed market data
+          if (cached) {
+            const cacheTTL = cached.data.isMarketClosed ? CACHE_TTL_CLOSED : CACHE_TTL_LIVE;
+            if (now - cached.timestamp < cacheTTL) {
+              prices[symbol] = cached.data;
+              return;
+            }
           }
 
           try {
@@ -154,59 +119,99 @@ serve(async (req) => {
             
             if (!response.ok) {
               console.error(`Failed to fetch price for ${finnhubSymbol}: ${response.status}`);
-              // Use fallback price when API fails
-              const fallbackData = getFallbackPrice(symbol, stockMarket);
-              if (fallbackData) {
-                prices[symbol] = fallbackData;
-                cache.set(cacheKey, { data: fallbackData, timestamp: Date.now() });
+              // On API failure, use cached data if available (even if expired)
+              if (cached) {
+                console.log(`Using cached data for ${symbol}`);
+                prices[symbol] = { ...cached.data, isMarketClosed: true };
               }
               return;
             }
 
             const data = await response.json();
             
-            // Finnhub quote response: c = current, d = change, dp = change percent, pc = previous close, t = timestamp
-            const hasCurrentPrice = data.c && data.c > 0;
-            const hasPreviousClose = data.pc && data.pc > 0;
+            // Finnhub quote response:
+            // c = current price
+            // d = change (absolute)
+            // dp = change percent
+            // pc = previous close
+            // h = high
+            // l = low
+            // o = open
+            // t = timestamp (unix seconds)
             
-            // If no data from API, use fallback
+            const currentPrice = data.c;
+            const previousClose = data.pc;
+            const apiChange = data.d;
+            const apiChangePercent = data.dp;
+            const timestamp = data.t ? data.t * 1000 : now;
+            
+            // Check if we have valid price data
+            const hasCurrentPrice = currentPrice && currentPrice > 0;
+            const hasPreviousClose = previousClose && previousClose > 0;
+            
+            // If API returns no data at all, try to use cached data
             if (!hasCurrentPrice && !hasPreviousClose) {
-              const fallbackData = getFallbackPrice(symbol, stockMarket);
-              if (fallbackData) {
-                prices[symbol] = fallbackData;
-                cache.set(cacheKey, { data: fallbackData, timestamp: Date.now() });
+              if (cached) {
+                console.log(`No API data for ${symbol}, using cached data`);
+                prices[symbol] = { ...cached.data, isMarketClosed: true };
               }
               return;
             }
             
-            // Determine if market is closed based on current price being 0 or missing
-            const isMarketClosed = !hasCurrentPrice;
+            // Determine market status:
+            // - If current price equals previous close AND change is 0, likely market closed
+            // - If timestamp is old (more than 1 hour), market likely closed
+            // - If current price is 0 but we have previous close, market closed
+            const isStale = (now - timestamp) > 60 * 60 * 1000; // 1 hour
+            const noChange = apiChange === 0 && apiChangePercent === 0;
+            const isMarketClosed = !hasCurrentPrice || isStale || (hasCurrentPrice && currentPrice === previousClose && noChange);
             
-            // Use current price if available, otherwise fall back to previous close
-            const displayPrice = hasCurrentPrice ? data.c : data.pc;
+            // Always use the best available price
+            // Priority: current price > previous close
+            const displayPrice = hasCurrentPrice ? currentPrice : previousClose;
             
-            // Calculate change: if market open use API values, if closed calculate from previous close
-            const change = hasCurrentPrice ? (data.d || 0) : 0;
-            const changePercent = hasCurrentPrice ? (data.dp || 0) : 0;
+            // Calculate change from previous close
+            let change: number;
+            let changePercent: number;
             
-            const priceData = {
+            if (hasCurrentPrice && hasPreviousClose) {
+              // Use API-provided change if available, otherwise calculate
+              if (apiChange !== null && apiChange !== undefined) {
+                change = apiChange;
+                changePercent = apiChangePercent || 0;
+              } else {
+                change = currentPrice - previousClose;
+                changePercent = hasPreviousClose ? (change / previousClose) * 100 : 0;
+              }
+            } else if (hasPreviousClose && !hasCurrentPrice) {
+              // Market closed, no current price - show 0 change from close
+              change = 0;
+              changePercent = 0;
+            } else {
+              change = 0;
+              changePercent = 0;
+            }
+            
+            const priceData: PriceData = {
               price: displayPrice,
-              change: change,
-              changePercent: changePercent,
-              previousClose: data.pc || displayPrice,
+              change: Number(change.toFixed(2)),
+              changePercent: Number(changePercent.toFixed(2)),
+              previousClose: hasPreviousClose ? previousClose : displayPrice,
               market: stockMarket,
               isMarketClosed: isMarketClosed,
-              lastUpdated: data.t ? data.t * 1000 : Date.now()
+              lastUpdated: timestamp
             };
             
             prices[symbol] = priceData;
-            cache.set(cacheKey, { data: priceData, timestamp: Date.now() });
+            // Cache the real data
+            priceCache.set(cacheKey, { data: priceData, timestamp: now });
+            
           } catch (err) {
             console.error(`Error fetching price for ${symbol}:`, err);
-            // Use fallback price on error
-            const fallbackData = getFallbackPrice(symbol, stockMarket);
-            if (fallbackData) {
-              prices[symbol] = fallbackData;
+            // On error, use cached data if available
+            if (cached) {
+              console.log(`Error for ${symbol}, using cached data`);
+              prices[symbol] = { ...cached.data, isMarketClosed: true };
             }
           }
         })
