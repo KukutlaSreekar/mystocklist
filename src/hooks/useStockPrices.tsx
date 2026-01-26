@@ -7,6 +7,7 @@ export interface StockPrice {
   change: number;
   changePercent: number;
   previousClose: number;
+  market?: string;
 }
 
 export function useStockPrices(watchlist: WatchlistItem[] | undefined) {
@@ -20,15 +21,26 @@ export function useStockPrices(watchlist: WatchlistItem[] | undefined) {
         market: stock.market || 'NYSE'
       }));
 
-      const { data, error } = await supabase.functions.invoke('stock-price', {
-        body: { symbols }
-      });
+      try {
+        const { data, error } = await supabase.functions.invoke('stock-price', {
+          body: { symbols }
+        });
 
-      if (error) throw error;
-      return data?.prices || {};
+        if (error) {
+          console.error('Stock price fetch error:', error);
+          return {};
+        }
+        
+        return data?.prices || {};
+      } catch (err) {
+        console.error('Stock price fetch failed:', err);
+        return {};
+      }
     },
     enabled: !!watchlist && watchlist.length > 0,
     refetchInterval: 30000, // Auto-refresh every 30 seconds
     staleTime: 25000, // Consider data stale after 25 seconds
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   });
 }
