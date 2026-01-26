@@ -122,7 +122,7 @@ export default function Index() {
       {/* Footer */}
       <footer className="relative z-10 border-t border-border/50 py-8">
         <div className="container text-center text-sm text-muted-foreground">
-          <p>© 2024 StockWatch. Built for investors.</p>
+          <p>© 2026 MyStockList. Built for investors.</p>
         </div>
       </footer>
     </div>;
