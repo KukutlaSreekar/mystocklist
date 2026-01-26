@@ -50,10 +50,7 @@ export default function Index() {
               <span className="gradient-text">stock watchlist</span>{" "}
               with anyone
             </h1>
-            <p className="text-lg sm:text-xl text-muted-foreground mb-10 max-w-2xl mx-auto">
-              Track your favorite stocks privately, then share with friends using
-              a simple 6-character code. They can view—but never modify—your picks.
-            </p>
+            <p className="text-lg sm:text-xl text-muted-foreground mb-10 max-w-2xl mx-auto">Track your favourite stocks privately, then share with friends using a simple 6-character code. They can view—but never modify—your picks.</p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
               <Link to="/signup">
