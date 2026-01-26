@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Loader2, Search, X } from "lucide-react";
 import { useStockSearch, StockSearchResult } from "@/hooks/useStockSearch";
@@ -33,29 +33,23 @@ function HighlightMatch({ text, query }: { text: string; query: string }) {
   
   // Check if any word starts with query
   const words = text.split(' ');
-  let foundIndex = -1;
   let charIndex = 0;
   
   for (let i = 0; i < words.length; i++) {
     if (words[i].toLowerCase().startsWith(lowerQuery)) {
-      foundIndex = i;
-      break;
+      const beforeMatch = text.slice(0, charIndex);
+      const matchPart = text.slice(charIndex, charIndex + query.length);
+      const afterMatch = text.slice(charIndex + query.length);
+      
+      return (
+        <>
+          {beforeMatch}
+          <span className="text-primary font-semibold">{matchPart}</span>
+          {afterMatch}
+        </>
+      );
     }
     charIndex += words[i].length + 1; // +1 for space
-  }
-  
-  if (foundIndex >= 0) {
-    const beforeMatch = text.slice(0, charIndex);
-    const matchPart = text.slice(charIndex, charIndex + query.length);
-    const afterMatch = text.slice(charIndex + query.length);
-    
-    return (
-      <>
-        {beforeMatch}
-        <span className="text-primary font-semibold">{matchPart}</span>
-        {afterMatch}
-      </>
-    );
   }
   
   return <>{text}</>;
@@ -71,10 +65,11 @@ export function StockSearchInput({
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState(value);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const debouncedQuery = useDebounce(inputValue, 150); // Even faster debounce
-  const { results, isLoading, search, clearResults } = useStockSearch();
+  const debouncedQuery = useDebounce(inputValue, 200);
+  const { results, total, hasMore, isLoading, isLoadingMore, search, loadMore, clearResults } = useStockSearch();
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (debouncedQuery.length >= 1) {
@@ -104,6 +99,16 @@ export function StockSearchInput({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Infinite scroll handler
+  const handleScroll = useCallback(() => {
+    if (!listRef.current || isLoadingMore || !hasMore) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = listRef.current;
+    if (scrollTop + clientHeight >= scrollHeight - 50) {
+      loadMore();
+    }
+  }, [loadMore, isLoadingMore, hasMore]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
@@ -187,8 +192,21 @@ export function StockSearchInput({
       </div>
 
       {isOpen && results.length > 0 && (
-        <div className="absolute z-50 w-full mt-1.5 bg-popover border border-border rounded-xl shadow-2xl max-h-80 overflow-auto animate-in fade-in-0 zoom-in-95 duration-150">
-          <div className="p-1.5">
+        <div className="absolute z-50 w-full mt-1.5 bg-popover border border-border rounded-xl shadow-2xl animate-in fade-in-0 zoom-in-95 duration-150 overflow-hidden">
+          {/* Result count header */}
+          <div className="px-3 py-2 border-b border-border bg-muted/30">
+            <p className="text-xs text-muted-foreground">
+              Showing <span className="font-semibold text-foreground">{results.length}</span> of{" "}
+              <span className="font-semibold text-foreground">{total}</span> matches
+            </p>
+          </div>
+          
+          {/* Scrollable results */}
+          <div 
+            ref={listRef}
+            className="max-h-72 overflow-auto p-1.5"
+            onScroll={handleScroll}
+          >
             {results.map((result, index) => (
               <button
                 key={`${result.symbol}-${index}`}
@@ -228,6 +246,21 @@ export function StockSearchInput({
                 </div>
               </button>
             ))}
+            
+            {/* Loading more indicator */}
+            {isLoadingMore && (
+              <div className="flex items-center justify-center py-3">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-xs text-muted-foreground">Loading more...</span>
+              </div>
+            )}
+            
+            {/* End of results */}
+            {!hasMore && results.length > 0 && total > 20 && (
+              <div className="text-center py-2">
+                <span className="text-xs text-muted-foreground">End of results</span>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -236,6 +269,9 @@ export function StockSearchInput({
         <div className="absolute z-50 w-full mt-1.5 bg-popover border border-border rounded-xl shadow-2xl p-6 animate-in fade-in-0 zoom-in-95 duration-150">
           <p className="text-sm text-muted-foreground text-center">
             No stocks starting with "<span className="font-mono font-semibold text-foreground">{debouncedQuery}</span>"
+          </p>
+          <p className="text-xs text-muted-foreground text-center mt-2">
+            Try a different search term or check if symbols are synced
           </p>
         </div>
       )}
