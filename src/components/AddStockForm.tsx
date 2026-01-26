@@ -4,10 +4,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { useAddStock } from "@/hooks/useWatchlist";
+import { MarketSelector } from "@/components/MarketSelector";
+import { StockSearchInput } from "@/components/StockSearchInput";
+import { StockSearchResult } from "@/hooks/useStockSearch";
 import { Plus, X } from "lucide-react";
 
 export function AddStockForm() {
   const [isOpen, setIsOpen] = useState(false);
+  const [market, setMarket] = useState("NYSE");
   const [formData, setFormData] = useState({
     symbol: "",
     company_name: "",
@@ -16,6 +20,14 @@ export function AddStockForm() {
   });
 
   const addStock = useAddStock();
+
+  const handleStockSelect = (result: StockSearchResult) => {
+    setFormData({
+      ...formData,
+      symbol: result.symbol,
+      company_name: result.name,
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,10 +41,12 @@ export function AddStockForm() {
         target_price: formData.target_price
           ? parseFloat(formData.target_price)
           : undefined,
+        market,
       },
       {
         onSuccess: () => {
           setFormData({ symbol: "", company_name: "", notes: "", target_price: "" });
+          setMarket("NYSE");
           setIsOpen(false);
         },
       }
@@ -70,17 +84,9 @@ export function AddStockForm() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="text-sm font-medium text-muted-foreground mb-1 block">
-              Symbol *
+              Market *
             </label>
-            <Input
-              value={formData.symbol}
-              onChange={(e) =>
-                setFormData({ ...formData, symbol: e.target.value })
-              }
-              className="font-mono uppercase"
-              placeholder="AAPL"
-              required
-            />
+            <MarketSelector value={market} onChange={setMarket} />
           </div>
           <div>
             <label className="text-sm font-medium text-muted-foreground mb-1 block">
@@ -96,6 +102,19 @@ export function AddStockForm() {
               placeholder="150.00"
             />
           </div>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium text-muted-foreground mb-1 block">
+            Stock Symbol *
+          </label>
+          <StockSearchInput
+            market={market}
+            value={formData.symbol}
+            onChange={(value) => setFormData({ ...formData, symbol: value })}
+            onSelect={handleStockSelect}
+            placeholder="Search by symbol or name..."
+          />
         </div>
 
         <div>
