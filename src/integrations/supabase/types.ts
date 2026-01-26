@@ -44,6 +44,42 @@ export type Database = {
         }
         Relationships: []
       }
+      stock_symbols: {
+        Row: {
+          company_name: string | null
+          created_at: string
+          id: string
+          market: string
+          market_cap: number | null
+          popularity_score: number | null
+          symbol: string
+          updated_at: string
+          volume: number | null
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string
+          id?: string
+          market: string
+          market_cap?: number | null
+          popularity_score?: number | null
+          symbol: string
+          updated_at?: string
+          volume?: number | null
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string
+          id?: string
+          market?: string
+          market_cap?: number | null
+          popularity_score?: number | null
+          symbol?: string
+          updated_at?: string
+          volume?: number | null
+        }
+        Relationships: []
+      }
       watchlists: {
         Row: {
           company_name: string | null
