@@ -3,20 +3,16 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TrendingUp, ArrowRight, Share2, Lock, Eye } from "lucide-react";
-
 export default function Index() {
   const [code, setCode] = useState("");
   const navigate = useNavigate();
-
   const handleViewWatchlist = (e: React.FormEvent) => {
     e.preventDefault();
     if (code.trim().length === 6) {
       navigate(`/public/${code.trim().toUpperCase()}`);
     }
   };
-
-  return (
-    <div className="min-h-screen bg-background overflow-hidden">
+  return <div className="min-h-screen bg-background overflow-hidden">
       {/* Background Effects */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl" />
@@ -29,7 +25,8 @@ export default function Index() {
           <div className="p-2 rounded-xl gradient-primary">
             <TrendingUp className="w-6 h-6 text-primary-foreground" />
           </div>
-          <span className="text-xl font-bold">StockWatch</span>
+          <span className="text-xl font-bold">​MyStockList
+        </span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -60,10 +57,7 @@ export default function Index() {
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
               <Link to="/signup">
-                <Button
-                  size="lg"
-                  className="gradient-primary text-primary-foreground text-lg px-8 h-14 shadow-lg hover:shadow-xl transition-shadow"
-                >
+                <Button size="lg" className="gradient-primary text-primary-foreground text-lg px-8 h-14 shadow-lg hover:shadow-xl transition-shadow">
                   Create Your Watchlist
                   <ArrowRight className="w-5 h-5 ml-2" />
                 </Button>
@@ -74,13 +68,7 @@ export default function Index() {
             <div className="glass-card rounded-2xl p-6 max-w-md mx-auto">
               <h3 className="font-semibold mb-3">Have a code? View a watchlist</h3>
               <form onSubmit={handleViewWatchlist} className="flex gap-2">
-                <Input
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  placeholder="Enter 6-char code"
-                  maxLength={6}
-                  className="font-mono text-center text-lg tracking-widest uppercase"
-                />
+                <Input value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="Enter 6-char code" maxLength={6} className="font-mono text-center text-lg tracking-widest uppercase" />
                 <Button type="submit" disabled={code.length !== 6}>
                   <Eye className="w-4 h-4 mr-2" />
                   View
@@ -137,6 +125,5 @@ export default function Index() {
           <p>© 2024 StockWatch. Built for investors.</p>
         </div>
       </footer>
-    </div>
-  );
+    </div>;
 }
