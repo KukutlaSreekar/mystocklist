@@ -1,7 +1,8 @@
 import { useParams, Link } from "react-router-dom";
 import { useProfileByCode } from "@/hooks/useProfile";
 import { useWatchlistByUserId } from "@/hooks/useWatchlist";
-import { StockCard } from "@/components/StockCard";
+import { useStockPrices } from "@/hooks/useStockPrices";
+import { WatchlistTable } from "@/components/WatchlistTable";
 import { Button } from "@/components/ui/button";
 import { TrendingUp, Loader2, AlertCircle, ArrowLeft } from "lucide-react";
 
@@ -9,6 +10,7 @@ export default function PublicWatchlist() {
   const { code } = useParams<{ code: string }>();
   const { data: profile, isLoading: profileLoading, error: profileError } = useProfileByCode(code || "");
   const { data: watchlist, isLoading: watchlistLoading } = useWatchlistByUserId(profile?.user_id);
+  const { data: prices = {}, isLoading: pricesLoading } = useStockPrices(watchlist);
 
   const isLoading = profileLoading || watchlistLoading;
 
@@ -65,7 +67,7 @@ export default function PublicWatchlist() {
         </div>
       </header>
 
-      <main className="container py-8 max-w-3xl">
+      <main className="container py-8 max-w-4xl">
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
             <span className="font-mono tracking-wider">{code?.toUpperCase()}</span>
@@ -74,27 +76,16 @@ export default function PublicWatchlist() {
             {profile.display_name}'s Watchlist
           </h1>
           <p className="text-muted-foreground">
-            Viewing {watchlist?.length || 0} stocks • Read-only access
+            Viewing {watchlist?.length || 0} stocks • Read-only access • Live prices
           </p>
         </div>
 
-        {watchlist && watchlist.length > 0 ? (
-          <div className="grid gap-4">
-            {watchlist.map((stock) => (
-              <StockCard key={stock.id} stock={stock} readOnly />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-16 px-6 rounded-2xl border border-dashed border-border">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-muted flex items-center justify-center">
-              <TrendingUp className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2">No stocks yet</h3>
-            <p className="text-muted-foreground">
-              This watchlist is empty. Check back later!
-            </p>
-          </div>
-        )}
+        <WatchlistTable
+          watchlist={watchlist || []}
+          prices={prices}
+          pricesLoading={pricesLoading}
+          readOnly
+        />
 
         <div className="mt-12 text-center">
           <p className="text-sm text-muted-foreground mb-4">

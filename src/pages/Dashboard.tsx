@@ -1,12 +1,20 @@
-import { useWatchlist } from "@/hooks/useWatchlist";
+import { useState } from "react";
+import { useWatchlist, useUpdateStock, useDeleteStock } from "@/hooks/useWatchlist";
+import { useStockPrices } from "@/hooks/useStockPrices";
 import { DashboardHeader } from "@/components/DashboardHeader";
-import { StockCard } from "@/components/StockCard";
+import { WatchlistTable } from "@/components/WatchlistTable";
 import { AddStockForm } from "@/components/AddStockForm";
 import { ShareCode } from "@/components/ShareCode";
-import { Loader2, TrendingUp } from "lucide-react";
+import { StockEditDialog } from "@/components/StockEditDialog";
+import { WatchlistItem } from "@/lib/supabase";
+import { Loader2 } from "lucide-react";
 
 export default function Dashboard() {
   const { data: watchlist, isLoading } = useWatchlist();
+  const { data: prices = {}, isLoading: pricesLoading } = useStockPrices(watchlist);
+  const [editingStock, setEditingStock] = useState<WatchlistItem | null>(null);
+  const updateStock = useUpdateStock();
+  const deleteStock = useDeleteStock();
 
   return (
     <div className="min-h-screen bg-background">
@@ -20,7 +28,7 @@ export default function Dashboard() {
               <div>
                 <h1 className="text-2xl font-bold">Your Watchlist</h1>
                 <p className="text-muted-foreground">
-                  Track your favorite stocks
+                  Track your favorite stocks with live prices
                 </p>
               </div>
               <AddStockForm />
@@ -30,25 +38,14 @@ export default function Dashboard() {
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
               </div>
-            ) : watchlist && watchlist.length > 0 ? (
-              <div className="grid gap-4">
-                {watchlist.map((stock) => (
-                  <StockCard key={stock.id} stock={stock} />
-                ))}
-              </div>
             ) : (
-              <div className="text-center py-16 px-6 rounded-2xl border border-dashed border-border">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary/10 flex items-center justify-center">
-                  <TrendingUp className="w-8 h-8 text-primary" />
-                </div>
-                <h3 className="text-lg font-semibold mb-2">
-                  No stocks yet
-                </h3>
-                <p className="text-muted-foreground max-w-sm mx-auto">
-                  Start building your watchlist by adding your first stock.
-                  Track companies you're interested in!
-                </p>
-              </div>
+              <WatchlistTable
+                watchlist={watchlist || []}
+                prices={prices}
+                pricesLoading={pricesLoading}
+                onEdit={setEditingStock}
+                onDelete={(id) => deleteStock.mutate(id)}
+              />
             )}
           </div>
 
@@ -59,14 +56,27 @@ export default function Dashboard() {
             <div className="p-6 rounded-2xl bg-gradient-to-br from-primary/10 to-accent/10 border border-primary/20">
               <h3 className="font-semibold mb-2">Pro Tip</h3>
               <p className="text-sm text-muted-foreground">
-                Share your public code with friends to let them view your
-                watchlist. They won't be able to make changes—only you can
-                edit your stocks.
+                Prices auto-refresh every 30 seconds. Share your public code
+                with friends to let them view your watchlist in real-time.
               </p>
             </div>
           </div>
         </div>
       </main>
+
+      <StockEditDialog
+        stock={editingStock}
+        onClose={() => setEditingStock(null)}
+        onSave={(data) => {
+          if (editingStock) {
+            updateStock.mutate(
+              { id: editingStock.id, ...data },
+              { onSuccess: () => setEditingStock(null) }
+            );
+          }
+        }}
+        isLoading={updateStock.isPending}
+      />
     </div>
   );
 }
