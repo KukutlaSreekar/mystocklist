@@ -49,6 +49,7 @@ export type Database = {
           company_name: string | null
           created_at: string
           id: string
+          market: string
           notes: string | null
           symbol: string
           target_price: number | null
@@ -59,6 +60,7 @@ export type Database = {
           company_name?: string | null
           created_at?: string
           id?: string
+          market?: string
           notes?: string | null
           symbol: string
           target_price?: number | null
@@ -69,6 +71,7 @@ export type Database = {
           company_name?: string | null
           created_at?: string
           id?: string
+          market?: string
           notes?: string | null
           symbol?: string
           target_price?: number | null
