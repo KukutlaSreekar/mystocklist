@@ -182,12 +182,9 @@ serve(async (req) => {
     const response = await fetch(searchUrl);
     
     if (!response.ok) {
-      // On API error, fallback to popular stocks
+      // On API error, fallback to popular stocks with prefix matching
       console.error(`Finnhub API error: ${response.status}`);
-      const filteredPopular = popularStocks.filter(s => 
-        s.symbol.toLowerCase().includes(normalizedQuery) ||
-        s.name.toLowerCase().includes(normalizedQuery)
-      ).map(s => ({
+      const filteredPopular = popularStocks.filter(matchesPrefix).map(s => ({
         symbol: s.symbol,
         name: s.name,
         displaySymbol: s.symbol + suffix,
