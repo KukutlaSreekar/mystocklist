@@ -1,14 +1,16 @@
 import { StockPrice } from "@/hooks/useStockPrices";
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { formatCurrency, getCurrencySymbol, formatNumber } from "@/lib/marketConfig";
 
 interface PriceDisplayProps {
   price: StockPrice | undefined;
+  market?: string;
   isLoading?: boolean;
   compact?: boolean;
 }
 
-export function PriceDisplay({ price, isLoading, compact = false }: PriceDisplayProps) {
+export function PriceDisplay({ price, market = "NYSE", isLoading, compact = false }: PriceDisplayProps) {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2">
@@ -21,7 +23,7 @@ export function PriceDisplay({ price, isLoading, compact = false }: PriceDisplay
   if (!price) {
     return (
       <span className="text-sm text-muted-foreground">
-        Price unavailable
+        —
       </span>
     );
   }
@@ -44,11 +46,14 @@ export function PriceDisplay({ price, isLoading, compact = false }: PriceDisplay
     isNeutral && "bg-muted"
   );
 
+  const currencySymbol = getCurrencySymbol(market);
+  const formattedPrice = formatNumber(price.price, market);
+
   if (compact) {
     return (
       <div className="flex flex-col items-end gap-0.5">
         <span className="font-semibold tabular-nums">
-          ${price.price.toFixed(2)}
+          {currencySymbol}{formattedPrice}
         </span>
         <div className={cn("flex items-center gap-1 text-xs", changeColor)}>
           <Icon className="w-3 h-3" />
@@ -63,7 +68,7 @@ export function PriceDisplay({ price, isLoading, compact = false }: PriceDisplay
   return (
     <div className="flex items-center gap-3">
       <span className="text-lg font-bold tabular-nums">
-        ${price.price.toFixed(2)}
+        {currencySymbol}{formattedPrice}
       </span>
       <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-full text-sm", bgColor, changeColor)}>
         <Icon className="w-3.5 h-3.5" />

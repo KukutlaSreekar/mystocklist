@@ -1,10 +1,11 @@
 import { WatchlistItem } from "@/lib/supabase";
 import { StockPrice } from "@/hooks/useStockPrices";
-import { PriceDisplay } from "@/components/PriceDisplay";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Pencil, Trash2, TrendingUp } from "lucide-react";
+import { Pencil, Trash2, TrendingUp, TrendingDown, Minus, AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getCurrencySymbol, formatNumber } from "@/lib/marketConfig";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -44,7 +45,7 @@ export function WatchlistTable({
 }: WatchlistTableProps) {
   if (watchlist.length === 0) {
     return (
-      <div className="text-center py-16 px-6 rounded-2xl border border-dashed border-border">
+      <div className="text-center py-16 px-6 rounded-2xl border border-dashed border-border bg-card/50">
         <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary/10 flex items-center justify-center">
           <TrendingUp className="w-8 h-8 text-primary" />
         </div>
@@ -58,32 +59,51 @@ export function WatchlistTable({
   }
 
   return (
-    <div className="rounded-xl border border-border overflow-hidden bg-card">
+    <div className="rounded-xl border border-border overflow-hidden bg-card shadow-sm">
       <Table>
         <TableHeader>
-          <TableRow className="bg-muted/50 hover:bg-muted/50">
-            <TableHead className="font-semibold">Stock</TableHead>
-            <TableHead className="font-semibold">Market</TableHead>
-            <TableHead className="font-semibold text-right">Price</TableHead>
-            <TableHead className="font-semibold text-right">Change</TableHead>
+          <TableRow className="bg-muted/30 hover:bg-muted/30 border-b border-border">
+            <TableHead className="font-semibold text-foreground">Stock</TableHead>
+            <TableHead className="font-semibold text-foreground">Market</TableHead>
+            <TableHead className="font-semibold text-foreground text-right">Price</TableHead>
+            <TableHead className="font-semibold text-foreground text-right">Change</TableHead>
             {!readOnly && <TableHead className="w-[100px]"></TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {watchlist.map((stock) => {
+          {watchlist.map((stock, index) => {
             const price = prices[stock.symbol];
             const isPositive = price?.change > 0;
             const isNegative = price?.change < 0;
+            const market = stock.market || 'NYSE';
+            const currencySymbol = getCurrencySymbol(market);
 
             return (
-              <TableRow key={stock.id} className="group">
+              <TableRow 
+                key={stock.id} 
+                className={cn(
+                  "group transition-colors hover:bg-muted/20",
+                  index % 2 === 0 ? "bg-transparent" : "bg-muted/5"
+                )}
+              >
                 <TableCell>
                   <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <TrendingUp className="w-4 h-4 text-primary" />
+                    <div className={cn(
+                      "p-2 rounded-lg transition-colors",
+                      isPositive ? "bg-success/10" : isNegative ? "bg-destructive/10" : "bg-primary/10"
+                    )}>
+                      {isPositive ? (
+                        <TrendingUp className="w-4 h-4 text-success" />
+                      ) : isNegative ? (
+                        <TrendingDown className="w-4 h-4 text-destructive" />
+                      ) : pricesLoading ? (
+                        <Minus className="w-4 h-4 text-muted-foreground animate-pulse" />
+                      ) : (
+                        <Minus className="w-4 h-4 text-primary" />
+                      )}
                     </div>
                     <div>
-                      <div className="font-mono font-bold">{stock.symbol}</div>
+                      <div className="font-mono font-bold text-foreground">{stock.symbol}</div>
                       {stock.company_name && (
                         <div className="text-sm text-muted-foreground truncate max-w-[200px]">
                           {stock.company_name}
@@ -93,32 +113,44 @@ export function WatchlistTable({
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline" className="font-medium">
-                    {stock.market || 'NYSE'}
+                  <Badge variant="outline" className="font-medium bg-muted/50">
+                    <span className="mr-1 text-muted-foreground">{currencySymbol}</span>
+                    {market}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
                   {pricesLoading ? (
                     <Skeleton className="h-5 w-20 ml-auto" />
                   ) : price ? (
-                    <span className="font-semibold tabular-nums">
-                      ${price.price.toFixed(2)}
+                    <span className="font-semibold tabular-nums text-foreground">
+                      {currencySymbol}{formatNumber(price.price, market)}
                     </span>
                   ) : (
-                    <span className="text-muted-foreground text-sm">—</span>
+                    <div className="flex items-center justify-end gap-1 text-muted-foreground">
+                      <AlertCircle className="w-3 h-3" />
+                      <span className="text-sm">—</span>
+                    </div>
                   )}
                 </TableCell>
                 <TableCell className="text-right">
                   {pricesLoading ? (
                     <Skeleton className="h-5 w-24 ml-auto" />
                   ) : price ? (
-                    <div className={`flex items-center justify-end gap-1 text-sm font-medium ${
-                      isPositive ? 'text-success' : isNegative ? 'text-destructive' : 'text-muted-foreground'
-                    }`}>
+                    <div className={cn(
+                      "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-sm font-medium",
+                      isPositive ? "text-success bg-success/10" : 
+                      isNegative ? "text-destructive bg-destructive/10" : 
+                      "text-muted-foreground bg-muted"
+                    )}>
+                      {isPositive ? (
+                        <TrendingUp className="w-3 h-3" />
+                      ) : isNegative ? (
+                        <TrendingDown className="w-3 h-3" />
+                      ) : null}
                       <span className="tabular-nums">
                         {isPositive ? '+' : ''}{price.change.toFixed(2)}
                       </span>
-                      <span className="tabular-nums">
+                      <span className="tabular-nums text-xs opacity-80">
                         ({isPositive ? '+' : ''}{price.changePercent.toFixed(2)}%)
                       </span>
                     </div>
@@ -133,7 +165,7 @@ export function WatchlistTable({
                         variant="ghost"
                         size="icon"
                         onClick={() => onEdit?.(stock)}
-                        className="h-8 w-8"
+                        className="h-8 w-8 hover:bg-primary/10"
                       >
                         <Pencil className="w-4 h-4" />
                       </Button>
@@ -142,12 +174,12 @@ export function WatchlistTable({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </AlertDialogTrigger>
-                        <AlertDialogContent>
+                        <AlertDialogContent className="bg-card border-border">
                           <AlertDialogHeader>
                             <AlertDialogTitle>Remove {stock.symbol}?</AlertDialogTitle>
                             <AlertDialogDescription>
