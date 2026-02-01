@@ -1,8 +1,9 @@
+import { useState, useMemo, useCallback } from "react";
 import { WatchlistItem } from "@/lib/supabase";
 import { StockPrice } from "@/hooks/useStockPrices";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Pencil, Trash2, TrendingUp, TrendingDown, Minus, AlertCircle, Clock } from "lucide-react";
+import { Pencil, Trash2, TrendingUp, TrendingDown, Minus, AlertCircle, Clock, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getCurrencySymbol, formatNumber } from "@/lib/marketConfig";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,14 @@ interface WatchlistTableProps {
   onDelete?: (id: string) => void;
 }
 
+type SortColumn = 'stock' | 'market' | 'price' | 'change' | 'changePercent' | 'status' | null;
+type SortDirection = 'asc' | 'desc' | null;
+
+interface SortState {
+  column: SortColumn;
+  direction: SortDirection;
+}
+
 function formatLastUpdated(timestamp: number | undefined): string {
   if (!timestamp) return '';
   const date = new Date(timestamp);
@@ -63,6 +72,49 @@ function formatTime(timestamp: number | undefined): string {
   return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
+interface SortableHeaderProps {
+  label: string;
+  column: SortColumn;
+  currentSort: SortState;
+  onSort: (column: SortColumn) => void;
+  align?: 'left' | 'center' | 'right';
+}
+
+function SortableHeader({ label, column, currentSort, onSort, align = 'left' }: SortableHeaderProps) {
+  const isActive = currentSort.column === column;
+  
+  return (
+    <TableHead 
+      className={cn(
+        "font-semibold text-foreground cursor-pointer select-none transition-colors hover:bg-muted/50 group",
+        align === 'right' && "text-right",
+        align === 'center' && "text-center"
+      )}
+      onClick={() => onSort(column)}
+    >
+      <div className={cn(
+        "flex items-center gap-1.5",
+        align === 'right' && "justify-end",
+        align === 'center' && "justify-center"
+      )}>
+        <span>{label}</span>
+        <span className={cn(
+          "transition-all duration-200",
+          isActive ? "opacity-100" : "opacity-0 group-hover:opacity-50"
+        )}>
+          {isActive && currentSort.direction === 'asc' ? (
+            <ArrowUp className="w-3.5 h-3.5" />
+          ) : isActive && currentSort.direction === 'desc' ? (
+            <ArrowDown className="w-3.5 h-3.5" />
+          ) : (
+            <ArrowUpDown className="w-3.5 h-3.5" />
+          )}
+        </span>
+      </div>
+    </TableHead>
+  );
+}
+
 export function WatchlistTable({
   watchlist,
   prices,
@@ -71,6 +123,81 @@ export function WatchlistTable({
   onEdit,
   onDelete,
 }: WatchlistTableProps) {
+  const [sortState, setSortState] = useState<SortState>({ column: null, direction: null });
+
+  const handleSort = useCallback((column: SortColumn) => {
+    setSortState(prev => {
+      if (prev.column !== column) {
+        // First click on new column: ascending
+        return { column, direction: 'asc' };
+      } else if (prev.direction === 'asc') {
+        // Second click: descending
+        return { column, direction: 'desc' };
+      } else {
+        // Third click: reset
+        return { column: null, direction: null };
+      }
+    });
+  }, []);
+
+  const sortedWatchlist = useMemo(() => {
+    if (!sortState.column || !sortState.direction) {
+      return watchlist;
+    }
+
+    const sorted = [...watchlist].sort((a, b) => {
+      const priceA = prices[a.symbol];
+      const priceB = prices[b.symbol];
+      
+      let comparison = 0;
+      
+      switch (sortState.column) {
+        case 'stock':
+          // Sort by company name, fallback to symbol
+          const nameA = (a.company_name || a.symbol).toLowerCase();
+          const nameB = (b.company_name || b.symbol).toLowerCase();
+          comparison = nameA.localeCompare(nameB);
+          break;
+          
+        case 'market':
+          comparison = (a.market || 'NYSE').localeCompare(b.market || 'NYSE');
+          break;
+          
+        case 'price':
+          const valPriceA = priceA?.price ?? -Infinity;
+          const valPriceB = priceB?.price ?? -Infinity;
+          comparison = valPriceA - valPriceB;
+          break;
+          
+        case 'change':
+          const valChangeA = priceA?.change ?? -Infinity;
+          const valChangeB = priceB?.change ?? -Infinity;
+          comparison = valChangeA - valChangeB;
+          break;
+          
+        case 'changePercent':
+          const valPercentA = priceA?.changePercent ?? -Infinity;
+          const valPercentB = priceB?.changePercent ?? -Infinity;
+          comparison = valPercentA - valPercentB;
+          break;
+          
+        case 'status':
+          // Sort by market status: Live (false) comes before Closed (true)
+          const statusA = priceA?.isMarketClosed ? 1 : 0;
+          const statusB = priceB?.isMarketClosed ? 1 : 0;
+          comparison = statusA - statusB;
+          break;
+          
+        default:
+          comparison = 0;
+      }
+      
+      return sortState.direction === 'desc' ? -comparison : comparison;
+    });
+
+    return sorted;
+  }, [watchlist, prices, sortState]);
+
   if (watchlist.length === 0) {
     return (
       <div className="text-center py-16 px-6 rounded-2xl border border-dashed border-border bg-card/50">
@@ -91,16 +218,44 @@ export function WatchlistTable({
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/30 hover:bg-muted/30 border-b border-border">
-            <TableHead className="font-semibold text-foreground">Stock</TableHead>
-            <TableHead className="font-semibold text-foreground">Market</TableHead>
-            <TableHead className="font-semibold text-foreground text-right">Price</TableHead>
-            <TableHead className="font-semibold text-foreground text-right">Change</TableHead>
-            <TableHead className="font-semibold text-foreground text-center">Status</TableHead>
+            <SortableHeader 
+              label="Stock" 
+              column="stock" 
+              currentSort={sortState} 
+              onSort={handleSort} 
+            />
+            <SortableHeader 
+              label="Market" 
+              column="market" 
+              currentSort={sortState} 
+              onSort={handleSort} 
+            />
+            <SortableHeader 
+              label="Price" 
+              column="price" 
+              currentSort={sortState} 
+              onSort={handleSort}
+              align="right"
+            />
+            <SortableHeader 
+              label="Change" 
+              column="change" 
+              currentSort={sortState} 
+              onSort={handleSort}
+              align="right"
+            />
+            <SortableHeader 
+              label="Status" 
+              column="status" 
+              currentSort={sortState} 
+              onSort={handleSort}
+              align="center"
+            />
             {!readOnly && <TableHead className="w-[100px]"></TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {watchlist.map((stock, index) => {
+          {sortedWatchlist.map((stock, index) => {
             const price = prices[stock.symbol];
             const isPositive = price?.change > 0;
             const isNegative = price?.change < 0;
@@ -112,7 +267,7 @@ export function WatchlistTable({
               <TableRow 
                 key={stock.id} 
                 className={cn(
-                  "group transition-colors hover:bg-muted/20",
+                  "group transition-all duration-200 hover:bg-muted/20",
                   index % 2 === 0 ? "bg-transparent" : "bg-muted/5"
                 )}
               >
