@@ -12,6 +12,7 @@ export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,7 +44,7 @@ export default function Signup() {
 
     setLoading(true);
     try {
-      await signUp(email, password);
+      await signUp(email, password, displayName.trim() || undefined);
     } finally {
       setLoading(false);
     }
@@ -57,7 +58,23 @@ export default function Signup() {
       footerLinkText="Sign in"
       footerLinkHref="/login"
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="space-y-2">
+          <Label htmlFor="displayName">Display Name</Label>
+          <Input
+            id="displayName"
+            type="text"
+            placeholder="How should we call you?"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            className="h-12"
+            maxLength={50}
+          />
+          <p className="text-xs text-muted-foreground">
+            This will be shown on your public watchlist
+          </p>
+        </div>
+
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input
