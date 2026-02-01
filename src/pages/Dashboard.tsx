@@ -5,6 +5,7 @@ import { DashboardHeader } from "@/components/DashboardHeader";
 import { WatchlistTable } from "@/components/WatchlistTable";
 import { AddStockForm } from "@/components/AddStockForm";
 import { ShareCode } from "@/components/ShareCode";
+import { ProfileSettings } from "@/components/ProfileSettings";
 import { StockEditDialog } from "@/components/StockEditDialog";
 import { WatchlistItem } from "@/lib/supabase";
 import { Loader2, RefreshCw, TrendingUp, Clock } from "lucide-react";
@@ -109,6 +110,7 @@ export default function Dashboard() {
 
           {/* Sidebar */}
           <div className="space-y-4">
+            <ProfileSettings />
             <ShareCode />
 
             <div className="p-5 rounded-xl bg-gradient-to-br from-primary/5 via-accent/5 to-primary/10 border border-primary/10">
