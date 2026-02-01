@@ -41,7 +41,7 @@ interface WatchlistTableProps {
   onDelete?: (id: string) => void;
 }
 
-type SortColumn = 'stock' | 'market' | 'price' | 'change' | 'changePercent' | 'status' | null;
+type SortColumn = 'stock' | 'market' | 'price' | 'change' | 'status' | null;
 type SortDirection = 'asc' | 'desc' | null;
 
 interface SortState {
@@ -78,12 +78,13 @@ interface SortableHeaderProps {
   currentSort: SortState;
   onSort: (column: SortColumn) => void;
   align?: 'left' | 'center' | 'right';
+  tooltip?: string;
 }
 
-function SortableHeader({ label, column, currentSort, onSort, align = 'left' }: SortableHeaderProps) {
+function SortableHeader({ label, column, currentSort, onSort, align = 'left', tooltip }: SortableHeaderProps) {
   const isActive = currentSort.column === column;
   
-  return (
+  const headerContent = (
     <TableHead 
       className={cn(
         "font-semibold text-foreground cursor-pointer select-none transition-colors hover:bg-muted/50 group",
@@ -113,6 +114,21 @@ function SortableHeader({ label, column, currentSort, onSort, align = 'left' }: 
       </div>
     </TableHead>
   );
+
+  if (tooltip) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {headerContent}
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="text-xs">{tooltip}</p>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return headerContent;
 }
 
 export function WatchlistTable({
@@ -170,15 +186,16 @@ export function WatchlistTable({
           break;
           
         case 'change':
-          const valChangeA = priceA?.change ?? -Infinity;
-          const valChangeB = priceB?.change ?? -Infinity;
-          comparison = valChangeA - valChangeB;
-          break;
+          // Sort by percentage change, with null/undefined pushed to bottom
+          const hasPercentA = priceA?.changePercent != null;
+          const hasPercentB = priceB?.changePercent != null;
           
-        case 'changePercent':
-          const valPercentA = priceA?.changePercent ?? -Infinity;
-          const valPercentB = priceB?.changePercent ?? -Infinity;
-          comparison = valPercentA - valPercentB;
+          // Push items without data to the bottom
+          if (!hasPercentA && !hasPercentB) return 0;
+          if (!hasPercentA) return 1; // a goes to bottom
+          if (!hasPercentB) return -1; // b goes to bottom
+          
+          comparison = priceA.changePercent - priceB.changePercent;
           break;
           
         case 'status':
@@ -243,6 +260,7 @@ export function WatchlistTable({
               currentSort={sortState} 
               onSort={handleSort}
               align="right"
+              tooltip="Sort by % Change"
             />
             <SortableHeader 
               label="Status" 
