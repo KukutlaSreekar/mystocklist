@@ -115,34 +115,10 @@ serve(async (req) => {
   }
 
   try {
-    // Authentication check - require valid user token to prevent API abuse
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized - Authentication required', prices: {} }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Dynamically import createClient for auth verification
-    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    // Stock prices are public data from Yahoo Finance
+    // No authentication required - this is read-only public information
+    // Rate limiting is handled by caching (30s live, 1hr closed)
     
-    const authSupabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } }
-    });
-    
-    const token = authHeader.replace('Bearer ', '');
-    const { data: claimsData, error: claimsError } = await authSupabase.auth.getClaims(token);
-    
-    if (claimsError || !claimsData?.claims) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized - Invalid token', prices: {} }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     const { symbols } = await req.json();
     
     if (!symbols || !Array.isArray(symbols) || symbols.length === 0) {
