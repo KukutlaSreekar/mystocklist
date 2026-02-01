@@ -119,7 +119,9 @@ export type Database = {
           created_at: string
           id: string
           market: string
+          market_cap_category: string | null
           notes: string | null
+          sector: string | null
           symbol: string
           target_price: number | null
           updated_at: string
@@ -130,7 +132,9 @@ export type Database = {
           created_at?: string
           id?: string
           market?: string
+          market_cap_category?: string | null
           notes?: string | null
+          sector?: string | null
           symbol: string
           target_price?: number | null
           updated_at?: string
@@ -141,7 +145,9 @@ export type Database = {
           created_at?: string
           id?: string
           market?: string
+          market_cap_category?: string | null
           notes?: string | null
+          sector?: string | null
           symbol?: string
           target_price?: number | null
           updated_at?: string

@@ -20,6 +20,8 @@ export type WatchlistItem = {
   notes: string | null;
   target_price: number | null;
   market: string;
+  sector: string | null;
+  market_cap_category: string | null;
   created_at: string;
   updated_at: string;
 };
