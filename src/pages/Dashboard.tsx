@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useWatchlist, useUpdateStock, useDeleteStock } from "@/hooks/useWatchlist";
 import { useStockPrices } from "@/hooks/useStockPrices";
 import { DashboardHeader } from "@/components/DashboardHeader";
@@ -7,19 +7,52 @@ import { AddStockForm } from "@/components/AddStockForm";
 import { ShareCode } from "@/components/ShareCode";
 import { ProfileSettings } from "@/components/ProfileSettings";
 import { StockEditDialog } from "@/components/StockEditDialog";
+import { PortfolioAllocation } from "@/components/PortfolioAllocation";
 import { WatchlistItem } from "@/lib/supabase";
-import { Loader2, RefreshCw, TrendingUp, Clock } from "lucide-react";
+import { Loader2, RefreshCw, TrendingUp, Clock, PieChart, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { useQueryClient } from "@tanstack/react-query";
 
 export default function Dashboard() {
   const { data: watchlist, isLoading, refetch: refetchWatchlist } = useWatchlist();
   const { data: prices = {}, isLoading: pricesLoading, refetch: refetchPrices } = useStockPrices(watchlist);
   const [editingStock, setEditingStock] = useState<WatchlistItem | null>(null);
+  const [allocationFilter, setAllocationFilter] = useState<{ type: 'sector' | 'marketCap'; value: string } | null>(null);
   const updateStock = useUpdateStock();
   const deleteStock = useDeleteStock();
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Default sector mapping for stocks without sector data
+  const DEFAULT_SECTORS: Record<string, string> = {
+    'AAPL': 'Technology', 'MSFT': 'Technology', 'GOOGL': 'Technology', 'META': 'Technology',
+    'NVDA': 'Technology', 'AMD': 'Technology', 'INTC': 'Technology', 'TSLA': 'Technology',
+    'TCS': 'Technology', 'INFY': 'Technology', 'WIPRO': 'Technology', 'HCLTECH': 'Technology',
+    'HDFCBANK': 'Banking', 'ICICIBANK': 'Banking', 'SBIN': 'Banking', 'KOTAKBANK': 'Banking',
+    'HINDUNILVR': 'FMCG', 'ITC': 'FMCG', 'NESTLEIND': 'FMCG', 'BRITANNIA': 'FMCG',
+    'SUNPHARMA': 'Pharma', 'DRREDDY': 'Pharma', 'CIPLA': 'Pharma',
+    'TATAMOTORS': 'Auto', 'MARUTI': 'Auto', 'M&M': 'Auto',
+    'RELIANCE': 'Energy', 'ONGC': 'Energy', 'BPCL': 'Energy',
+    'TATASTEEL': 'Metals', 'HINDALCO': 'Metals', 'JSWSTEEL': 'Metals',
+    'LT': 'Infrastructure', 'ADANIENT': 'Infrastructure',
+  };
+
+  // Filter watchlist based on allocation filter
+  const filteredWatchlist = useMemo(() => {
+    if (!watchlist || !allocationFilter) return watchlist || [];
+    
+    return watchlist.filter(stock => {
+      if (allocationFilter.type === 'sector') {
+        const stockSector = stock.sector || DEFAULT_SECTORS[stock.symbol] || 'Other';
+        return stockSector === allocationFilter.value;
+      } else if (allocationFilter.type === 'marketCap') {
+        const stockCap = stock.market_cap_category || 'Unknown';
+        return stockCap === allocationFilter.value;
+      }
+      return true;
+    });
+  }, [watchlist, allocationFilter]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -68,6 +101,33 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Portfolio Allocation Section */}
+        {watchlist && watchlist.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <PieChart className="w-5 h-5 text-primary" />
+                <h2 className="text-lg font-bold">Portfolio Allocation</h2>
+              </div>
+              {allocationFilter && (
+                <Badge 
+                  variant="secondary" 
+                  className="flex items-center gap-1.5 cursor-pointer hover:bg-secondary/80"
+                  onClick={() => setAllocationFilter(null)}
+                >
+                  Filtered: {allocationFilter.value}
+                  <X className="w-3 h-3" />
+                </Badge>
+              )}
+            </div>
+            <PortfolioAllocation 
+              watchlist={watchlist} 
+              prices={prices}
+              onFilterChange={setAllocationFilter}
+            />
+          </div>
+        )}
+
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-4">
@@ -75,10 +135,24 @@ export default function Dashboard() {
               <div>
                 <h1 className="text-xl font-bold">Your Watchlist</h1>
                 <p className="text-sm text-muted-foreground">
-                  Track your favorite stocks with live prices
+                  {allocationFilter 
+                    ? `Showing ${allocationFilter.value} stocks`
+                    : 'Track your favorite stocks with live prices'
+                  }
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                {allocationFilter && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setAllocationFilter(null)}
+                    className="text-muted-foreground"
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    Clear Filter
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -99,7 +173,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <WatchlistTable
-                watchlist={watchlist || []}
+                watchlist={filteredWatchlist}
                 prices={prices}
                 pricesLoading={pricesLoading}
                 onEdit={setEditingStock}
