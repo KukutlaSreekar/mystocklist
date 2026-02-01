@@ -173,3 +173,14 @@
     background-color: hsl(var(--muted-foreground));
   }
 }
+
+/* Hide Lovable branding watermark for production UI */
+[data-lovable-badge],
+.lovable-badge,
+#lovable-badge,
+a[href*="lovable.dev"][target="_blank"]:has(svg) {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
