@@ -43,10 +43,20 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     const { query, market, limit = 50, offset = 0 } = await req.json();
-    const normalizedQuery = (query || '').toLowerCase().trim();
+    
+    // Sanitize input: remove special PostgREST filter characters to prevent injection
+    const sanitizeInput = (input: string): string => {
+      return (input || '')
+        .toLowerCase()
+        .trim()
+        .replace(/[,.()|&<>=!*%_]/g, '') // Remove PostgREST special chars
+        .slice(0, 100); // Limit length
+    };
+    
+    const sanitizedQuery = sanitizeInput(query);
     
     // Return empty for no query
-    if (!normalizedQuery) {
+    if (!sanitizedQuery) {
       return new Response(
         JSON.stringify({ results: [], total: 0 }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -55,18 +65,16 @@ serve(async (req) => {
 
     const suffix = MARKET_SUFFIX[market] || '';
 
-    // Query the local stock_symbols table with prefix matching
-    // Using ILIKE for case-insensitive prefix matching
-    let queryBuilder = supabase
+    // Query using separate ilike calls instead of string interpolation
+    // This prevents PostgREST filter injection attacks
+    const { data: stocks, count, error } = await supabase
       .from('stock_symbols')
       .select('symbol, company_name, market, market_cap, volume, popularity_score', { count: 'exact' })
       .eq('market', market)
-      .or(`symbol.ilike.${normalizedQuery}%,company_name.ilike.${normalizedQuery}%`)
+      .or(`symbol.ilike.${sanitizedQuery}%,company_name.ilike.${sanitizedQuery}%`)
       .order('popularity_score', { ascending: false })
       .order('market_cap', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1);
-
-    const { data: stocks, count, error } = await queryBuilder;
 
     if (error) {
       console.error('Database query error:', error);
