@@ -45,6 +45,12 @@
     --chart-up: 142 71% 45%;
     --chart-down: 0 84% 60%;
 
+    --chart-1: 160 84% 39%;
+    --chart-2: 210 70% 55%;
+    --chart-3: 280 65% 55%;
+    --chart-4: 30 80% 55%;
+    --chart-5: 350 65% 55%;
+
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 222 47% 11%;
     --sidebar-primary: 160 84% 39%;
@@ -92,6 +98,12 @@
 
     --chart-up: 142 71% 45%;
     --chart-down: 0 84% 60%;
+
+    --chart-1: 160 84% 45%;
+    --chart-2: 210 70% 55%;
+    --chart-3: 280 65% 55%;
+    --chart-4: 30 80% 55%;
+    --chart-5: 350 65% 55%;
 
     --sidebar-background: 222 47% 9%;
     --sidebar-foreground: 210 40% 98%;
