@@ -1,1 +1,4 @@
 project_id = "dafbnqqlsvftdirdbsig"
+
+[functions.enrich-stock-metadata]
+verify_jwt = false

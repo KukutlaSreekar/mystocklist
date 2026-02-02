@@ -1,6 +1,7 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { useWatchlist, useUpdateStock, useDeleteStock } from "@/hooks/useWatchlist";
 import { useStockPrices } from "@/hooks/useStockPrices";
+import { useEnrichMetadata } from "@/hooks/useEnrichMetadata";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { WatchlistTable } from "@/components/WatchlistTable";
 import { AddStockForm } from "@/components/AddStockForm";
@@ -12,7 +13,6 @@ import { WatchlistItem } from "@/lib/supabase";
 import { Loader2, RefreshCw, TrendingUp, Clock, PieChart, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useQueryClient } from "@tanstack/react-query";
 
 export default function Dashboard() {
   const { data: watchlist, isLoading, refetch: refetchWatchlist } = useWatchlist();
@@ -21,22 +21,10 @@ export default function Dashboard() {
   const [allocationFilter, setAllocationFilter] = useState<{ type: 'sector' | 'marketCap'; value: string } | null>(null);
   const updateStock = useUpdateStock();
   const deleteStock = useDeleteStock();
-  const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Default sector mapping for stocks without sector data
-  const DEFAULT_SECTORS: Record<string, string> = {
-    'AAPL': 'Technology', 'MSFT': 'Technology', 'GOOGL': 'Technology', 'META': 'Technology',
-    'NVDA': 'Technology', 'AMD': 'Technology', 'INTC': 'Technology', 'TSLA': 'Technology',
-    'TCS': 'Technology', 'INFY': 'Technology', 'WIPRO': 'Technology', 'HCLTECH': 'Technology',
-    'HDFCBANK': 'Banking', 'ICICIBANK': 'Banking', 'SBIN': 'Banking', 'KOTAKBANK': 'Banking',
-    'HINDUNILVR': 'FMCG', 'ITC': 'FMCG', 'NESTLEIND': 'FMCG', 'BRITANNIA': 'FMCG',
-    'SUNPHARMA': 'Pharma', 'DRREDDY': 'Pharma', 'CIPLA': 'Pharma',
-    'TATAMOTORS': 'Auto', 'MARUTI': 'Auto', 'M&M': 'Auto',
-    'RELIANCE': 'Energy', 'ONGC': 'Energy', 'BPCL': 'Energy',
-    'TATASTEEL': 'Metals', 'HINDALCO': 'Metals', 'JSWSTEEL': 'Metals',
-    'LT': 'Infrastructure', 'ADANIENT': 'Infrastructure',
-  };
+  // Enrich stock metadata (sector, market cap) from Yahoo Finance
+  useEnrichMetadata(watchlist, true);
 
   // Filter watchlist based on allocation filter
   const filteredWatchlist = useMemo(() => {
@@ -44,7 +32,7 @@ export default function Dashboard() {
     
     return watchlist.filter(stock => {
       if (allocationFilter.type === 'sector') {
-        const stockSector = stock.sector || DEFAULT_SECTORS[stock.symbol] || 'Other';
+        const stockSector = stock.sector || 'Other';
         return stockSector === allocationFilter.value;
       } else if (allocationFilter.type === 'marketCap') {
         const stockCap = stock.market_cap_category || 'Unknown';
