@@ -3,25 +3,12 @@ import { useParams, Link } from "react-router-dom";
 import { useProfileByCode } from "@/hooks/useProfile";
 import { useWatchlistByUserId } from "@/hooks/useWatchlist";
 import { useStockPrices } from "@/hooks/useStockPrices";
+import { useEnrichMetadata } from "@/hooks/useEnrichMetadata";
 import { WatchlistTable } from "@/components/WatchlistTable";
 import { PortfolioAllocation } from "@/components/PortfolioAllocation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, Loader2, AlertCircle, ArrowLeft, PieChart, X, Clock } from "lucide-react";
-
-// Default sector mapping for stocks without sector data
-const DEFAULT_SECTORS: Record<string, string> = {
-  'AAPL': 'Technology', 'MSFT': 'Technology', 'GOOGL': 'Technology', 'META': 'Technology',
-  'NVDA': 'Technology', 'AMD': 'Technology', 'INTC': 'Technology', 'TSLA': 'Technology',
-  'TCS': 'Technology', 'INFY': 'Technology', 'WIPRO': 'Technology', 'HCLTECH': 'Technology',
-  'HDFCBANK': 'Banking', 'ICICIBANK': 'Banking', 'SBIN': 'Banking', 'KOTAKBANK': 'Banking',
-  'HINDUNILVR': 'FMCG', 'ITC': 'FMCG', 'NESTLEIND': 'FMCG', 'BRITANNIA': 'FMCG',
-  'SUNPHARMA': 'Pharma', 'DRREDDY': 'Pharma', 'CIPLA': 'Pharma',
-  'TATAMOTORS': 'Auto', 'MARUTI': 'Auto', 'M&M': 'Auto',
-  'RELIANCE': 'Energy', 'ONGC': 'Energy', 'BPCL': 'Energy',
-  'TATASTEEL': 'Metals', 'HINDALCO': 'Metals', 'JSWSTEEL': 'Metals',
-  'LT': 'Infrastructure', 'ADANIENT': 'Infrastructure',
-};
 
 export default function PublicWatchlist() {
   const { code } = useParams<{ code: string }>();
@@ -43,13 +30,16 @@ export default function PublicWatchlist() {
     isLoading: pricesLoading
   } = useStockPrices(watchlist);
 
+  // Enrich stock metadata (sector, market cap) from Yahoo Finance
+  useEnrichMetadata(watchlist, false);
+
   // Filter watchlist based on allocation filter
   const filteredWatchlist = useMemo(() => {
     if (!watchlist || !allocationFilter) return watchlist || [];
     
     return watchlist.filter(stock => {
       if (allocationFilter.type === 'sector') {
-        const stockSector = stock.sector || DEFAULT_SECTORS[stock.symbol] || 'Other';
+        const stockSector = stock.sector || 'Other';
         return stockSector === allocationFilter.value;
       } else if (allocationFilter.type === 'marketCap') {
         const stockCap = stock.market_cap_category || 'Unknown';

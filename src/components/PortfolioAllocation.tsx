@@ -43,34 +43,8 @@ const MARKET_CAP_COLORS = {
   "Unknown": "hsl(var(--muted-foreground))",
 };
 
-// Sector mapping for stocks without sector data
-const DEFAULT_SECTORS: Record<string, string> = {
-  // Tech
-  'AAPL': 'Technology', 'MSFT': 'Technology', 'GOOGL': 'Technology', 'META': 'Technology',
-  'NVDA': 'Technology', 'AMD': 'Technology', 'INTC': 'Technology', 'TSLA': 'Technology',
-  'TCS': 'Technology', 'INFY': 'Technology', 'WIPRO': 'Technology', 'HCLTECH': 'Technology',
-  'TECHM': 'Technology', 'LTI': 'Technology', 'MINDTREE': 'Technology',
-  // Banking
-  'HDFCBANK': 'Banking', 'ICICIBANK': 'Banking', 'SBIN': 'Banking', 'KOTAKBANK': 'Banking',
-  'AXISBANK': 'Banking', 'INDUSINDBK': 'Banking', 'JPM': 'Banking', 'BAC': 'Banking',
-  'WFC': 'Banking', 'C': 'Banking', 'GS': 'Banking', 'MS': 'Banking',
-  // FMCG
-  'HINDUNILVR': 'FMCG', 'ITC': 'FMCG', 'NESTLEIND': 'FMCG', 'BRITANNIA': 'FMCG',
-  'MARICO': 'FMCG', 'DABUR': 'FMCG', 'PG': 'FMCG', 'KO': 'FMCG', 'PEP': 'FMCG',
-  // Pharma
-  'SUNPHARMA': 'Pharma', 'DRREDDY': 'Pharma', 'CIPLA': 'Pharma', 'DIVISLAB': 'Pharma',
-  'BIOCON': 'Pharma', 'JNJ': 'Pharma', 'PFE': 'Pharma', 'MRK': 'Pharma',
-  // Auto
-  'TATAMOTORS': 'Auto', 'MARUTI': 'Auto', 'M&M': 'Auto', 'BAJAJ-AUTO': 'Auto',
-  'EICHERMOT': 'Auto', 'F': 'Auto', 'GM': 'Auto', 'TM': 'Auto',
-  // Energy
-  'RELIANCE': 'Energy', 'ONGC': 'Energy', 'BPCL': 'Energy', 'IOC': 'Energy',
-  'XOM': 'Energy', 'CVX': 'Energy', 'COP': 'Energy',
-  // Metals
-  'TATASTEEL': 'Metals', 'HINDALCO': 'Metals', 'JSWSTEEL': 'Metals', 'VEDL': 'Metals',
-  // Infra
-  'LT': 'Infrastructure', 'ADANIENT': 'Infrastructure', 'ADANIPORTS': 'Infrastructure',
-};
+// Fallback sector for stocks without any metadata
+const FALLBACK_SECTOR = 'Other';
 
 interface ChartDataItem {
   name: string;
@@ -156,7 +130,8 @@ export function PortfolioAllocation({ watchlist, prices, onFilterChange }: Portf
     const sectorMap = new Map<string, WatchlistItem[]>();
     
     watchlist.forEach(stock => {
-      const sector = stock.sector || DEFAULT_SECTORS[stock.symbol] || 'Other';
+      // Use enriched sector data, fallback to 'Other' only if missing
+      const sector = stock.sector || FALLBACK_SECTOR;
       const existing = sectorMap.get(sector) || [];
       sectorMap.set(sector, [...existing, stock]);
     });
