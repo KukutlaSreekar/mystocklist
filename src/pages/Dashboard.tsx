@@ -24,7 +24,7 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Enrich stock metadata (sector, market cap) from Yahoo Finance
-  useEnrichMetadata(watchlist, true);
+  const enrichmentState = useEnrichMetadata(watchlist, true);
 
   // Filter watchlist based on allocation filter
   const filteredWatchlist = useMemo(() => {
@@ -112,6 +112,8 @@ export default function Dashboard() {
               watchlist={watchlist} 
               prices={prices}
               onFilterChange={setAllocationFilter}
+              isEnriching={enrichmentState.isEnriching}
+              missingPercent={enrichmentState.missingPercent}
             />
           </div>
         )}

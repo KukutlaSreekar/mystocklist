@@ -18,6 +18,8 @@ interface PortfolioAllocationProps {
   watchlist: WatchlistItem[];
   prices: Record<string, StockPrice>;
   onFilterChange?: (filter: { type: 'sector' | 'marketCap'; value: string } | null) => void;
+  isEnriching?: boolean;
+  missingPercent?: number;
 }
 
 // Color palette for charts - TradingView inspired
@@ -120,10 +122,13 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-export function PortfolioAllocation({ watchlist, prices, onFilterChange }: PortfolioAllocationProps) {
+export function PortfolioAllocation({ watchlist, prices, onFilterChange, isEnriching, missingPercent }: PortfolioAllocationProps) {
   const [activeSectorIndex, setActiveSectorIndex] = useState<number | undefined>(undefined);
   const [activeCapIndex, setActiveCapIndex] = useState<number | undefined>(undefined);
   const [drillDownData, setDrillDownData] = useState<{ type: string; name: string; stocks: WatchlistItem[] } | null>(null);
+
+  // Truthful rendering: if >20% stocks lack metadata and still enriching, show syncing state
+  const showSyncingState = isEnriching && (missingPercent ?? 0) > 20;
 
   // Calculate sector allocation
   const sectorData = useMemo<ChartDataItem[]>(() => {
@@ -209,8 +214,22 @@ export function PortfolioAllocation({ watchlist, prices, onFilterChange }: Portf
     setDrillDownData(null);
   }, [drillDownData, onFilterChange]);
 
-  if (watchlist.length === 0) {
-    return null;
+  if (watchlist.length === 0) return null;
+
+  if (showSyncingState) {
+    return (
+      <div className="grid md:grid-cols-2 gap-4">
+        {[0, 1].map(i => (
+          <Card key={i} className="border-border bg-card overflow-hidden">
+            <CardContent className="flex flex-col items-center justify-center h-[300px] gap-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+              <p className="text-sm text-muted-foreground font-medium">Metadata syncing…</p>
+              <p className="text-xs text-muted-foreground">Fetching sector &amp; market cap data from Yahoo Finance</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
   }
 
   const totalStocks = watchlist.length;

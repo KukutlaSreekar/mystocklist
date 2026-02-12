@@ -31,7 +31,7 @@ export default function PublicWatchlist() {
   } = useStockPrices(watchlist);
 
   // Enrich stock metadata (sector, market cap) from Yahoo Finance
-  useEnrichMetadata(watchlist, false);
+  const enrichmentState = useEnrichMetadata(watchlist, false);
 
   // Filter watchlist based on allocation filter
   const filteredWatchlist = useMemo(() => {
@@ -177,6 +177,8 @@ export default function PublicWatchlist() {
               watchlist={watchlist} 
               prices={prices}
               onFilterChange={setAllocationFilter}
+              isEnriching={enrichmentState.isEnriching}
+              missingPercent={enrichmentState.missingPercent}
             />
           </div>
         )}
