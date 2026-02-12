@@ -6,6 +6,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// NSE API headers required for access
+const NSE_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/json',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://www.nseindia.com/',
+};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -17,76 +24,108 @@ serve(async (req) => {
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
-    const { market = 'NSE', batchSize = 50, offset = 0, computeOnly = false } = await req.json().catch(() => ({}));
+    console.log('Starting SEBI rank-based cap classification...');
 
-    // If computeOnly flag set, skip fetching and just rank existing data
-    if (computeOnly) {
-      return await computeAndStoreRankings(supabase, market);
+    // Strategy 1: Try NSE index constituent APIs
+    let largeCaps = await fetchNseIndexConstituents('NIFTY 100');
+    let midCaps = await fetchNseIndexConstituents('NIFTY MIDCAP 150');
+
+    // Strategy 2: If NSE API fails, use AI to get the lists
+    if (largeCaps.length === 0 || midCaps.length === 0) {
+      console.log('NSE API unavailable, using AI for SEBI classification lists...');
+      const aiLists = await fetchSebiListsViaAI();
+      if (largeCaps.length === 0) largeCaps = aiLists.largeCaps;
+      if (midCaps.length === 0) midCaps = aiLists.midCaps;
     }
 
-    console.log(`Computing cap rankings for ${market}, batch offset=${offset}, size=${batchSize}`);
+    console.log(`Classification lists: ${largeCaps.length} Large Cap, ${midCaps.length} Mid Cap`);
 
-    // Step 1: Fetch stocks that need market_cap data
-    const { data: stocks, error: fetchErr } = await supabase
-      .from('stock_symbols')
-      .select('id, symbol, market, market_cap')
-      .eq('market', market)
-      .is('market_cap', null)
-      .order('symbol')
-      .range(offset, offset + batchSize - 1);
-
-    if (fetchErr) throw fetchErr;
-
-    if (!stocks || stocks.length === 0) {
-      return await computeAndStoreRankings(supabase, market);
+    if (largeCaps.length < 50 || midCaps.length < 50) {
+      return new Response(
+        JSON.stringify({
+          status: 'insufficient_data',
+          message: `Could not fetch reliable SEBI lists. Large: ${largeCaps.length}, Mid: ${midCaps.length}`,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    console.log(`Fetching market caps for ${stocks.length} ${market} stocks via AI...`);
+    const largeCapSet = new Set(largeCaps.map(s => s.toUpperCase()));
+    const midCapSet = new Set(midCaps.map(s => s.toUpperCase()));
 
-    // Use AI to estimate market caps in batches of 25
-    let updated = 0;
-    let failed = 0;
-    const SUB_BATCH = 25;
+    // Fetch ALL NSE stock symbols (paginate past 1000-row limit)
+    let allStocks: { id: string; symbol: string }[] = [];
+    let page = 0;
+    const PAGE_SIZE = 1000;
+    while (true) {
+      const { data, error: fetchErr } = await supabase
+        .from('stock_symbols')
+        .select('id, symbol')
+        .eq('market', 'NSE')
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+      if (fetchErr) throw fetchErr;
+      if (!data || data.length === 0) break;
+      allStocks = allStocks.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      page++;
+    }
 
-    for (let i = 0; i < stocks.length; i += SUB_BATCH) {
-      const batch = stocks.slice(i, i + SUB_BATCH);
+    if (allStocks.length === 0) {
+      return new Response(
+        JSON.stringify({ status: 'no_stocks', message: 'No NSE stocks in database' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-      try {
-        const aiResults = await fetchMarketCapsViaAI(batch, market);
-        for (const stock of batch) {
-          const cap = aiResults[stock.symbol];
-          if (cap && cap > 0) {
-            const { error: updateErr } = await supabase
-              .from('stock_symbols')
-              .update({ market_cap: cap })
-              .eq('id', stock.id);
-            if (!updateErr) updated++;
-            else failed++;
-          } else {
-            failed++;
-          }
-        }
-      } catch (err) {
-        console.warn(`Batch error:`, err);
-        failed += batch.length;
+    console.log(`Classifying ${allStocks.length} NSE stocks...`);
+
+    // Group stocks by category
+    const largeIds: string[] = [];
+    const midIds: string[] = [];
+    const smallIds: string[] = [];
+
+    for (const stock of allStocks) {
+      const sym = stock.symbol.toUpperCase();
+      if (largeCapSet.has(sym)) {
+        largeIds.push(stock.id);
+      } else if (midCapSet.has(sym)) {
+        midIds.push(stock.id);
+      } else {
+        smallIds.push(stock.id);
       }
+    }
 
-      // Brief pause between AI calls
-      if (i + SUB_BATCH < stocks.length) {
-        await new Promise(r => setTimeout(r, 200));
+    // Batch update by category, chunking IDs to avoid query limits
+    let updateCount = 0;
+    const IN_CHUNK = 500;
+
+    async function batchUpdate(ids: string[], category: string) {
+      for (let i = 0; i < ids.length; i += IN_CHUNK) {
+        const chunk = ids.slice(i, i + IN_CHUNK);
+        const { error } = await supabase
+          .from('stock_symbols')
+          .update({ cap_category: category })
+          .in('id', chunk);
+        if (!error) updateCount += chunk.length;
+        else console.error(`${category} update error:`, error);
       }
     }
 
-    const remaining = stocks.length === batchSize;
-    console.log(`Batch complete: ${updated} updated, ${failed} failed, more=${remaining}`);
+    await batchUpdate(largeIds, 'Large Cap');
+    await batchUpdate(midIds, 'Mid Cap');
+    await batchUpdate(smallIds, 'Small Cap');
+
+    console.log(`Rankings complete: ${largeIds.length} Large, ${midIds.length} Mid, ${smallIds.length} Small (${updateCount} updated)`);
 
     return new Response(
       JSON.stringify({
-        status: 'batch_complete',
-        updated,
-        failed,
-        hasMore: remaining,
-        nextOffset: offset + batchSize,
+        status: 'rankings_complete',
+        total: allStocks.length,
+        largeCap: largeIds.length,
+        midCap: midIds.length,
+        smallCap: smallIds.length,
+        updated: updateCount,
+        source: largeCaps.length > 0 ? 'nse_index' : 'ai_sebi_lists',
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -99,117 +138,94 @@ serve(async (req) => {
   }
 });
 
-async function fetchMarketCapsViaAI(
-  stocks: { symbol: string; market: string }[],
-  market: string
-): Promise<Record<string, number>> {
+async function fetchNseIndexConstituents(indexName: string): Promise<string[]> {
+  try {
+    // First get session cookies from NSE homepage
+    const sessionRes = await fetch('https://www.nseindia.com/', {
+      headers: NSE_HEADERS,
+    });
+    const cookies = sessionRes.headers.get('set-cookie') || '';
+
+    // Then fetch index constituents
+    const encodedIndex = encodeURIComponent(indexName);
+    const url = `https://www.nseindia.com/api/equity-stockIndices?index=${encodedIndex}`;
+    
+    const res = await fetch(url, {
+      headers: {
+        ...NSE_HEADERS,
+        'Cookie': cookies,
+      },
+    });
+
+    if (!res.ok) {
+      console.warn(`NSE API returned ${res.status} for ${indexName}`);
+      return [];
+    }
+
+    const data = await res.json();
+    const stocks = data?.data || [];
+    const symbols = stocks
+      .map((s: any) => s.symbol)
+      .filter((s: string) => s && s !== indexName && !s.startsWith('Nifty'));
+
+    console.log(`NSE API: ${symbols.length} constituents for ${indexName}`);
+    return symbols;
+  } catch (err) {
+    console.warn(`NSE API fetch failed for ${indexName}:`, err);
+    return [];
+  }
+}
+
+async function fetchSebiListsViaAI(): Promise<{ largeCaps: string[]; midCaps: string[] }> {
   const apiKey = Deno.env.get('LOVABLE_API_KEY');
-  if (!apiKey) return {};
+  if (!apiKey) return { largeCaps: [], midCaps: [] };
 
-  const symbolList = stocks.map(s => s.symbol).join(', ');
-  const prompt = `For these ${market} Indian stock symbols, provide their approximate market capitalization in INR crores.
-Symbols: ${symbolList}
+  const prompt = `List the current NIFTY 100 and NIFTY Midcap 150 index constituents as NSE ticker symbols.
 
-Respond ONLY with a JSON object mapping symbol to market cap in INR crores (number).
-Example: {"RELIANCE": 1800000, "TCS": 1500000}
-Use real-world knowledge. If unknown, use 0.`;
+These are the SEBI-defined classifications:
+- NIFTY 100 constituents = Large Cap (Rank 1-100 by market cap)
+- NIFTY Midcap 150 constituents = Mid Cap (Rank 101-250 by market cap)
+
+Respond ONLY with a JSON object in this exact format:
+{"largeCaps": ["RELIANCE", "TCS", "HDFCBANK", ...], "midCaps": ["IRFC", "IDFCFIRSTB", ...]}
+
+Requirements:
+- Include ALL constituents (exactly 100 large caps, exactly 150 mid caps)
+- Use NSE ticker symbols only (not BSE codes)
+- Base this on the latest available AMFI/SEBI classification
+- Common Large Caps: RELIANCE, TCS, HDFCBANK, INFY, ICICIBANK, HINDUNILVR, SBIN, BHARTIARTL, ITC, KOTAKBANK, LT, HCLTECH, AXISBANK, BAJFINANCE, MARUTI, SUNPHARMA, TITAN, ONGC, NTPC, POWERGRID, ADANIENT, WIPRO, NESTLEIND, ULTRACEMCO, TECHM, COALINDIA, LTIM, BAJAJFINSV, TATASTEEL, INDUSINDBK, TATAMOTORS, M&M, JSWSTEEL, ADANIPORTS, DIVISLAB, DRREDDY, CIPLA, APOLLOHOSP, EICHERMOT, HEROMOTOCO, BPCL, GRASIM, BRITANNIA, TATACONSUM, HINDALCO, ASIANPAINT, SBILIFE, HDFCLIFE, BAJAJ-AUTO, UPL
+- Common Mid Caps: IRFC, IDFCFIRSTB, INDIGOPNTS, ZYDUSLIFE, AUROPHARMA, BIOCON, MPHASIS, COFORGE, PERSISTENT, CUMMINSIND, VOLTAS, GODREJCP, TRENT, POLYCAB, PIIND, ASTRAL, OBEROIRLTY, PRESTIGE, PAGEIND, ATUL, DEEPAKNTR, NAVINFLUOR, METROPOLIS
+
+No markdown, no explanation. Just the JSON.`;
 
   try {
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash-lite',
+        model: 'google/gemini-2.5-flash',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
       }),
     });
 
-    if (!response.ok) return {};
+    if (!response.ok) {
+      console.error('AI SEBI list fetch failed:', response.status);
+      return { largeCaps: [], midCaps: [] };
+    }
+
     const data = await response.json();
     let content = data?.choices?.[0]?.message?.content?.trim() || '';
     if (content.startsWith('```')) content = content.replace(/```json?\n?/g, '').replace(/```$/g, '').trim();
-    
+
     const parsed = JSON.parse(content);
-    // Convert crores to raw number (1 crore = 10M)
-    const result: Record<string, number> = {};
-    for (const [sym, val] of Object.entries(parsed)) {
-      result[sym] = (val as number) * 10_000_000; // crores to absolute
-    }
-    return result;
-  } catch {
-    return {};
+    const largeCaps = Array.isArray(parsed.largeCaps) ? parsed.largeCaps : [];
+    const midCaps = Array.isArray(parsed.midCaps) ? parsed.midCaps : [];
+
+    console.log(`AI SEBI lists: ${largeCaps.length} large caps, ${midCaps.length} mid caps`);
+    return { largeCaps, midCaps };
+  } catch (err) {
+    console.error('AI SEBI list classification error:', err);
+    return { largeCaps: [], midCaps: [] };
   }
-}
-
-async function computeAndStoreRankings(supabase: any, market: string) {
-  console.log(`Computing SEBI-style rankings for ${market}...`);
-
-  // Fetch all stocks with market_cap, sorted descending
-  const { data: allStocks, error } = await supabase
-    .from('stock_symbols')
-    .select('id, symbol, market_cap')
-    .eq('market', market)
-    .not('market_cap', 'is', null)
-    .gt('market_cap', 0)
-    .order('market_cap', { ascending: false });
-
-  if (error) throw error;
-  if (!allStocks || allStocks.length === 0) {
-    return new Response(
-      JSON.stringify({ status: 'no_data', message: 'No market cap data available for ranking' }),
-      { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }
-    );
-  }
-
-  console.log(`Ranking ${allStocks.length} stocks by market cap...`);
-
-  // SEBI classification: Rank 1-100 = Large, 101-250 = Mid, 251+ = Small
-  const updates: { id: string; cap_category: string }[] = [];
-  allStocks.forEach((stock: any, index: number) => {
-    const rank = index + 1;
-    let category: string;
-    if (rank <= 100) category = 'Large Cap';
-    else if (rank <= 250) category = 'Mid Cap';
-    else category = 'Small Cap';
-    updates.push({ id: stock.id, cap_category: category });
-  });
-
-  // Batch update in chunks of 100
-  let updateCount = 0;
-  for (let i = 0; i < updates.length; i += 100) {
-    const chunk = updates.slice(i, i + 100);
-    for (const item of chunk) {
-      const { error: upErr } = await supabase
-        .from('stock_symbols')
-        .update({ cap_category: item.cap_category })
-        .eq('id', item.id);
-      if (!upErr) updateCount++;
-    }
-  }
-
-  // Also mark stocks WITHOUT market_cap as null cap_category (unknown)
-  await supabase
-    .from('stock_symbols')
-    .update({ cap_category: null })
-    .eq('market', market)
-    .is('market_cap', null);
-
-  const largeCap = updates.filter(u => u.cap_category === 'Large Cap').length;
-  const midCap = updates.filter(u => u.cap_category === 'Mid Cap').length;
-  const smallCap = updates.filter(u => u.cap_category === 'Small Cap').length;
-
-  console.log(`Rankings computed: ${largeCap} Large, ${midCap} Mid, ${smallCap} Small (${updateCount} updated)`);
-
-  return new Response(
-    JSON.stringify({
-      status: 'rankings_complete',
-      total: allStocks.length,
-      largeCap,
-      midCap,
-      smallCap,
-      updated: updateCount,
-    }),
-    { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }
-  );
 }
