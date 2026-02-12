@@ -82,102 +82,90 @@ serve(async (req) => {
     const metadata: Record<string, StockMetadata> = {};
     const errors: string[] = [];
 
-    // Step 1: Look up precomputed cap_category from stock_symbols (SEBI rank-based)
+    // STEP 1: Look up precomputed cap_category from stock_symbols (SEBI rank-based)
+    // This is the ONLY source of truth for Indian market cap classification
     const symbolNames = symbols.map((s: any) => s.symbol);
     const { data: stockSymbolsData } = await supabase
       .from('stock_symbols')
-      .select('symbol, market, cap_category')
+      .select('symbol, market, cap_category, market_cap')
       .in('symbol', symbolNames);
 
-    const capLookup = new Map<string, string | null>();
+    const capLookup = new Map<string, { cap_category: string | null; market_cap: number | null }>();
     if (stockSymbolsData) {
       for (const row of stockSymbolsData) {
-        capLookup.set(`${row.symbol}-${row.market}`, row.cap_category);
+        capLookup.set(`${row.symbol}-${row.market}`, {
+          cap_category: row.cap_category,
+          market_cap: row.market_cap,
+        });
       }
     }
 
-    // Step 2: Try Yahoo Finance for sector/industry
+    // STEP 2: Fetch sector/industry from Yahoo Finance
     console.log('Fetching sector data from Yahoo Finance...');
     const yahooData = await fetchYahooQuote(symbols);
 
-    // Step 3: Populate metadata using Yahoo sector + precomputed cap_category
+    // STEP 3: Build metadata using Yahoo sector + precomputed cap_category
     for (const item of symbols) {
       const yData = yahooData[item.symbol];
-      const capCategory = capLookup.get(`${item.symbol}-${item.market}`);
+      const lookup = capLookup.get(`${item.symbol}-${item.market}`);
+      const isIndian = item.market === 'NSE' || item.market === 'BSE';
 
-      if (yData && (yData.sector || yData.industry)) {
-        const sector = yData.industry
-          ? (INDUSTRY_TO_SECTOR[yData.industry] || yData.sector || 'Other')
-          : (yData.sector || 'Other');
+      // For Indian markets, ALWAYS use precomputed cap_category from stock_symbols
+      // For other markets, use threshold-based classification from Yahoo marketCap
+      const capCategory = isIndian
+        ? (lookup?.cap_category || 'Unclassified')
+        : classifyByThreshold(yData?.marketCap);
 
-        metadata[item.symbol] = {
-          symbol: item.symbol,
-          sector,
-          industry: yData.industry || null,
-          marketCap: yData.marketCap || null,
-          // ALWAYS use precomputed SEBI cap_category for Indian markets
-          marketCapCategory: capCategory || (item.market === 'NSE' || item.market === 'BSE' ? 'Unclassified' : classifyByThreshold(yData.marketCap)),
-        };
-      } else if (capCategory) {
-        // No Yahoo data but have precomputed cap from ranking
-        metadata[item.symbol] = {
-          symbol: item.symbol,
-          sector: null,
-          industry: null,
-          marketCap: null,
-          marketCapCategory: capCategory,
-        };
-      }
+      const sector = yData?.industry
+        ? (INDUSTRY_TO_SECTOR[yData.industry] || yData.sector || null)
+        : (yData?.sector || null);
+
+      metadata[item.symbol] = {
+        symbol: item.symbol,
+        sector,
+        industry: yData?.industry || null,
+        marketCap: lookup?.market_cap || yData?.marketCap || null,
+        marketCapCategory: capCategory,
+      };
     }
 
-    // Step 4: AI fallback for missing sector/industry
-    const missingSymbols = symbols.filter((s: any) => !metadata[s.symbol] || !metadata[s.symbol]?.sector);
-    if (missingSymbols.length > 0) {
-      console.log(`AI classifying ${missingSymbols.length} remaining symbols...`);
-      const aiData = await classifyWithAI(missingSymbols);
+    // STEP 4: AI fallback for missing sector/industry only
+    const missingSector = symbols.filter((s: any) => !metadata[s.symbol]?.sector);
+    if (missingSector.length > 0) {
+      console.log(`AI classifying sector for ${missingSector.length} symbols...`);
+      const aiData = await classifyWithAI(missingSector);
 
-      for (const item of missingSymbols) {
+      for (const item of missingSector) {
         const aiResult = aiData[item.symbol];
-        const capCategory = capLookup.get(`${item.symbol}-${item.market}`);
         const existing = metadata[item.symbol];
-
-        if (aiResult) {
-          metadata[item.symbol] = {
-            symbol: item.symbol,
-            sector: aiResult.sector || existing?.sector || 'Other',
-            industry: aiResult.industry || existing?.industry || null,
-            marketCap: existing?.marketCap || null,
-            // ALWAYS prefer precomputed SEBI ranking
-            marketCapCategory: capCategory || existing?.marketCapCategory || (item.market === 'NSE' || item.market === 'BSE' ? 'Unclassified' : (aiResult.marketCapCategory || 'Unclassified')),
-          };
-        } else if (!existing) {
-          metadata[item.symbol] = {
-            symbol: item.symbol,
-            sector: null,
-            industry: null,
-            marketCap: null,
-            marketCapCategory: capCategory || 'Unclassified',
-            fetchError: 'No data from Yahoo or AI',
-          };
-          errors.push(`${item.symbol}: Could not classify`);
+        if (aiResult && existing) {
+          existing.sector = aiResult.sector || existing.sector;
+          existing.industry = aiResult.industry || existing.industry;
+          // NEVER override cap_category from AI for Indian stocks
         }
       }
     }
 
-    // Step 5: Update watchlist database if requested
+    // STEP 5: Update watchlist database if requested
     if (updateDatabase) {
       const authHeader = req.headers.get('Authorization');
       if (authHeader) {
         for (const item of symbols) {
           const meta = metadata[item.symbol];
-          if (meta && item.id && !meta.fetchError && (meta.sector || (meta.marketCapCategory && meta.marketCapCategory !== 'Unclassified'))) {
-            await supabase
-              .from('watchlists')
-              .update({
-                sector: meta.sector,
-                market_cap_category: meta.marketCapCategory,
-              })
-              .eq('id', item.id);
+          if (meta && item.id) {
+            const updateFields: Record<string, unknown> = {};
+            if (meta.sector) updateFields.sector = meta.sector;
+            if (meta.marketCapCategory && meta.marketCapCategory !== 'Unclassified') {
+              // Convert to snake_case for watchlist check constraint
+              const capMap: Record<string, string> = { 'Large Cap': 'large_cap', 'Mid Cap': 'mid_cap', 'Small Cap': 'small_cap' };
+              updateFields.market_cap_category = capMap[meta.marketCapCategory] || meta.marketCapCategory;
+            }
+            if (Object.keys(updateFields).length > 0) {
+              await supabase
+                .from('watchlists')
+                .update(updateFields)
+                .eq('id', item.id);
+            }
           }
         }
       }
@@ -201,7 +189,6 @@ serve(async (req) => {
   }
 });
 
-// Threshold-based classification (for non-Indian markets only)
 function classifyByThreshold(marketCap?: number): string {
   if (!marketCap) return 'Unclassified';
   if (marketCap >= 10_000_000_000) return 'Large Cap';
@@ -214,11 +201,11 @@ async function fetchYahooQuote(symbols: { symbol: string; market: string }[]): P
 
   const yahooSymbols = symbols.map(s => {
     const suffix = YAHOO_SUFFIX[s.market] || '';
-    return suffix ? `${s.symbol}${suffix}` : s.symbol;
+    return { orig: s.symbol, yahoo: suffix ? `${s.symbol}${suffix}` : s.symbol, market: s.market };
   });
 
   try {
-    const symbolStr = yahooSymbols.map(s => encodeURIComponent(s)).join(',');
+    const symbolStr = yahooSymbols.map(s => encodeURIComponent(s.yahoo)).join(',');
     const url = `https://query1.finance.yahoo.com/v6/finance/quote?symbols=${symbolStr}`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
@@ -228,13 +215,9 @@ async function fetchYahooQuote(symbols: { symbol: string; market: string }[]): P
       const data = await res.json();
       const quotes = data?.quoteResponse?.result || [];
       for (const quote of quotes) {
-        const origSymbol = symbols.find(s => {
-          const suffix = YAHOO_SUFFIX[s.market] || '';
-          const ySymbol = suffix ? `${s.symbol}${suffix}` : s.symbol;
-          return ySymbol === quote.symbol;
-        });
-        if (origSymbol) {
-          results[origSymbol.symbol] = {
+        const match = yahooSymbols.find(s => s.yahoo === quote.symbol);
+        if (match) {
+          results[match.orig] = {
             sector: quote.sector || undefined,
             industry: quote.industry || undefined,
             marketCap: quote.marketCap || undefined,
@@ -249,7 +232,7 @@ async function fetchYahooQuote(symbols: { symbol: string; market: string }[]): P
   return results;
 }
 
-async function classifyWithAI(symbols: { symbol: string; market: string; company_name?: string }[]): Promise<Record<string, { sector: string; marketCapCategory: string; industry: string }>> {
+async function classifyWithAI(symbols: { symbol: string; market: string; company_name?: string }[]): Promise<Record<string, { sector: string; industry: string }>> {
   const apiKey = Deno.env.get('LOVABLE_API_KEY');
   if (!apiKey) return {};
 
@@ -259,13 +242,12 @@ async function classifyWithAI(symbols: { symbol: string; market: string; company
 For each stock, provide:
 1. sector: One of: IT, Banking, Financials, FMCG, Pharma, Energy, Auto, Metals, Infrastructure, Telecom, Realty, Chemicals, Conglomerates, Media, Textiles, Other
 2. industry: The specific industry (e.g., "Software—Application", "Banks—Diversified")
-3. marketCapCategory: Leave as "Unknown" - this will be filled from SEBI rankings separately
 
 Stocks:
 ${symbolList}
 
 Respond ONLY with a JSON object. No markdown, no explanation. Format:
-{"SYMBOL": {"sector": "...", "industry": "...", "marketCapCategory": "Unknown"}, ...}`;
+{"SYMBOL": {"sector": "...", "industry": "..."}, ...}`;
 
   try {
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
