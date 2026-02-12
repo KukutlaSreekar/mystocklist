@@ -86,27 +86,13 @@ serve(async (req) => {
     const symbolNames = symbols.map((s: any) => s.symbol);
     const { data: stockSymbolsData } = await supabase
       .from('stock_symbols')
-      .select('symbol, market, cap_category, market_cap')
+      .select('symbol, market, cap_category')
       .in('symbol', symbolNames);
 
-    // Check if rankings are mature (need 250+ stocks ranked for SEBI accuracy)
-    const { count: rankedCount } = await supabase
-      .from('stock_symbols')
-      .select('*', { count: 'exact', head: true })
-      .eq('market', 'NSE')
-      .not('cap_category', 'is', null);
-
-    const rankingsMature = (rankedCount || 0) >= 250;
-    console.log(`Rankings maturity: ${rankedCount} stocks ranked, mature=${rankingsMature}`);
-
-    const capLookup = new Map<string, { cap_category: string | null; market_cap: number | null }>();
+    const capLookup = new Map<string, string | null>();
     if (stockSymbolsData) {
       for (const row of stockSymbolsData) {
-        capLookup.set(`${row.symbol}-${row.market}`, {
-          // Only use rank-based cap_category if rankings are mature
-          cap_category: rankingsMature ? row.cap_category : null,
-          market_cap: row.market_cap,
-        });
+        capLookup.set(`${row.symbol}-${row.market}`, row.cap_category);
       }
     }
 
@@ -114,68 +100,63 @@ serve(async (req) => {
     console.log('Fetching sector data from Yahoo Finance...');
     const yahooData = await fetchYahooQuote(symbols);
 
-    // Step 3: Populate metadata using Yahoo + rank-based cap
+    // Step 3: Populate metadata using Yahoo sector + precomputed cap_category
     for (const item of symbols) {
       const yData = yahooData[item.symbol];
-      const capInfo = capLookup.get(`${item.symbol}-${item.market}`);
+      const capCategory = capLookup.get(`${item.symbol}-${item.market}`);
 
-      if (yData && (yData.sector || yData.marketCap)) {
+      if (yData && (yData.sector || yData.industry)) {
         const sector = yData.industry
           ? (INDUSTRY_TO_SECTOR[yData.industry] || yData.sector || 'Other')
           : (yData.sector || 'Other');
-
-        // Use SEBI rank-based cap_category if available, otherwise classify by market cap
-        let capCategory = capInfo?.cap_category || null;
-        if (!capCategory && yData.marketCap) {
-          capCategory = classifyByThreshold(yData.marketCap);
-        }
 
         metadata[item.symbol] = {
           symbol: item.symbol,
           sector,
           industry: yData.industry || null,
-          marketCap: yData.marketCap || capInfo?.market_cap || null,
-          marketCapCategory: capCategory || 'Unknown',
+          marketCap: yData.marketCap || null,
+          // ALWAYS use precomputed SEBI cap_category for Indian markets
+          marketCapCategory: capCategory || (item.market === 'NSE' || item.market === 'BSE' ? 'Unclassified' : classifyByThreshold(yData.marketCap)),
         };
-      } else if (capInfo?.cap_category) {
-        // No Yahoo data but have rank-based cap
+      } else if (capCategory) {
+        // No Yahoo data but have precomputed cap from ranking
         metadata[item.symbol] = {
           symbol: item.symbol,
           sector: null,
           industry: null,
-          marketCap: capInfo.market_cap,
-          marketCapCategory: capInfo.cap_category,
+          marketCap: null,
+          marketCapCategory: capCategory,
         };
       }
     }
 
-    // Step 4: AI fallback for missing symbols
-    const missingSymbols = symbols.filter((s: any) => !metadata[s.symbol]);
+    // Step 4: AI fallback for missing sector/industry
+    const missingSymbols = symbols.filter((s: any) => !metadata[s.symbol] || !metadata[s.symbol]?.sector);
     if (missingSymbols.length > 0) {
       console.log(`AI classifying ${missingSymbols.length} remaining symbols...`);
       const aiData = await classifyWithAI(missingSymbols);
 
       for (const item of missingSymbols) {
         const aiResult = aiData[item.symbol];
-        const capInfo = capLookup.get(`${item.symbol}-${item.market}`);
+        const capCategory = capLookup.get(`${item.symbol}-${item.market}`);
+        const existing = metadata[item.symbol];
 
         if (aiResult) {
-          // Prefer SEBI rank-based cap over AI cap
-          const capCategory = capInfo?.cap_category || aiResult.marketCapCategory || 'Unknown';
           metadata[item.symbol] = {
             symbol: item.symbol,
-            sector: aiResult.sector || 'Other',
-            industry: aiResult.industry || null,
-            marketCap: capInfo?.market_cap || null,
-            marketCapCategory: capCategory,
+            sector: aiResult.sector || existing?.sector || 'Other',
+            industry: aiResult.industry || existing?.industry || null,
+            marketCap: existing?.marketCap || null,
+            // ALWAYS prefer precomputed SEBI ranking
+            marketCapCategory: capCategory || existing?.marketCapCategory || (item.market === 'NSE' || item.market === 'BSE' ? 'Unclassified' : (aiResult.marketCapCategory || 'Unclassified')),
           };
-        } else {
+        } else if (!existing) {
           metadata[item.symbol] = {
             symbol: item.symbol,
             sector: null,
             industry: null,
-            marketCap: capInfo?.market_cap || null,
-            marketCapCategory: capInfo?.cap_category || 'Unknown',
+            marketCap: null,
+            marketCapCategory: capCategory || 'Unclassified',
             fetchError: 'No data from Yahoo or AI',
           };
           errors.push(`${item.symbol}: Could not classify`);
@@ -189,7 +170,7 @@ serve(async (req) => {
       if (authHeader) {
         for (const item of symbols) {
           const meta = metadata[item.symbol];
-          if (meta && item.id && !meta.fetchError && (meta.sector || meta.marketCapCategory !== 'Unknown')) {
+          if (meta && item.id && !meta.fetchError && (meta.sector || (meta.marketCapCategory && meta.marketCapCategory !== 'Unclassified'))) {
             await supabase
               .from('watchlists')
               .update({
@@ -220,10 +201,11 @@ serve(async (req) => {
   }
 });
 
-// Fallback threshold-based classification (for non-Indian markets)
-function classifyByThreshold(marketCap: number): string {
-  if (marketCap >= 10_000_000_000) return 'Large Cap'; // $10B+ for US
-  if (marketCap >= 2_000_000_000) return 'Mid Cap';     // $2B+
+// Threshold-based classification (for non-Indian markets only)
+function classifyByThreshold(marketCap?: number): string {
+  if (!marketCap) return 'Unclassified';
+  if (marketCap >= 10_000_000_000) return 'Large Cap';
+  if (marketCap >= 2_000_000_000) return 'Mid Cap';
   return 'Small Cap';
 }
 
@@ -273,24 +255,17 @@ async function classifyWithAI(symbols: { symbol: string; market: string; company
 
   const symbolList = symbols.map(s => `${s.symbol} (${s.market}${s.company_name ? ', ' + s.company_name : ''})`).join('\n');
 
-  const prompt = `Classify the following stocks. For each stock, provide:
+  const prompt = `Classify the following stocks by SECTOR and INDUSTRY only.
+For each stock, provide:
 1. sector: One of: IT, Banking, Financials, FMCG, Pharma, Energy, Auto, Metals, Infrastructure, Telecom, Realty, Chemicals, Conglomerates, Media, Textiles, Other
 2. industry: The specific industry (e.g., "Software—Application", "Banks—Diversified")
-3. marketCapCategory: Use SEBI-standard ranking for Indian stocks:
-   - "Large Cap" = among top 100 companies by market capitalization on NSE
-   - "Mid Cap" = ranked 101-250 by market capitalization on NSE
-   - "Small Cap" = ranked 251+ by market capitalization on NSE
-   For US/global stocks: >$10B = Large Cap, $2B-$10B = Mid Cap, <$2B = Small Cap
-
-Known SEBI Large Cap examples: RELIANCE, TCS, HDFCBANK, INFY, ICICIBANK, HINDUNILVR, SBIN, BHARTIARTL, ITC, KOTAKBANK, LT, HCLTECH, AXISBANK, BAJFINANCE, MARUTI, SUNPHARMA, TITAN, ONGC, NTPC, POWERGRID, ADANIENT, WIPRO, NESTLEIND, ULTRACEMCO, TECHM, COALINDIA, LTIM, BAJAJFINSV, TATASTEEL, INDUSINDBK
-Known SEBI Mid Cap examples: IRFC, IDFCFIRSTB, INDIGOPNTS, ZYDUSLIFE, AUROPHARMA, BIOCON, MPHASIS, COFORGE, PERSISTENT, CUMMINSIND, VOLTAS, GODREJCP, TRENT
-Known Small Cap examples: CYBERTECH, DATAMATICS, GTLINFRA, KPITTECH
+3. marketCapCategory: Leave as "Unknown" - this will be filled from SEBI rankings separately
 
 Stocks:
 ${symbolList}
 
 Respond ONLY with a JSON object. No markdown, no explanation. Format:
-{"SYMBOL": {"sector": "...", "industry": "...", "marketCapCategory": "..."}, ...}`;
+{"SYMBOL": {"sector": "...", "industry": "...", "marketCapCategory": "Unknown"}, ...}`;
 
   try {
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
