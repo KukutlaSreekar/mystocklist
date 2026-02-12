@@ -38,11 +38,11 @@ const SECTOR_COLORS = [
   "hsl(45, 75%, 50%)",
 ];
 
-const MARKET_CAP_COLORS = {
+const MARKET_CAP_COLORS: Record<string, string> = {
   "Large Cap": "hsl(210, 70%, 55%)",
   "Mid Cap": "hsl(160, 60%, 45%)",
   "Small Cap": "hsl(30, 80%, 55%)",
-  "Unknown": "hsl(var(--muted-foreground))",
+  "Unclassified": "hsl(var(--muted-foreground))",
 };
 
 // Fallback sector for stocks without any metadata
@@ -127,8 +127,8 @@ export function PortfolioAllocation({ watchlist, prices, onFilterChange, isEnric
   const [activeCapIndex, setActiveCapIndex] = useState<number | undefined>(undefined);
   const [drillDownData, setDrillDownData] = useState<{ type: string; name: string; stocks: WatchlistItem[] } | null>(null);
 
-  // Truthful rendering: if >20% stocks lack metadata and still enriching, show syncing state
-  const showSyncingState = isEnriching && (missingPercent ?? 0) > 20;
+  // Truthful rendering: if >10% stocks lack metadata and still enriching, show syncing state
+  const showSyncingState = isEnriching && (missingPercent ?? 0) > 10;
 
   // Calculate sector allocation
   const sectorData = useMemo<ChartDataItem[]>(() => {
@@ -165,13 +165,13 @@ export function PortfolioAllocation({ watchlist, prices, onFilterChange, isEnric
     const capMap = new Map<string, WatchlistItem[]>();
     
     watchlist.forEach(stock => {
-      const category = stock.market_cap_category || 'Unknown';
+      const category = stock.market_cap_category || 'Unclassified';
       const existing = capMap.get(category) || [];
       capMap.set(category, [...existing, stock]);
     });
 
     const data: ChartDataItem[] = [];
-    const order = ['Large Cap', 'Mid Cap', 'Small Cap', 'Unknown'];
+    const order = ['Large Cap', 'Mid Cap', 'Small Cap', 'Unclassified'];
     
     order.forEach(cap => {
       const stocks = capMap.get(cap);
