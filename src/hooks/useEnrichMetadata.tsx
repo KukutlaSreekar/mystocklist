@@ -11,8 +11,8 @@ interface StockMetadata {
   fetchError?: string;
 }
 
-// Session-level cache of enriched symbols (reset when all values are null)
-let enrichedSymbols = new Set<string>();
+// Track enrichment attempts per page load
+const enrichAttempted = new Set<string>();
 
 export interface EnrichmentState {
   isEnriching: boolean;
@@ -29,7 +29,6 @@ export function useEnrichMetadata(watchlist: WatchlistItem[] | undefined, isAuth
     isEnriching: false, totalStocks: 0, missingMetadata: 0, missingPercent: 0, errors: [],
   });
 
-  // Compute missing metadata stats
   const computeStats = useCallback((items: WatchlistItem[]) => {
     const total = items.length;
     const missing = items.filter(i => !i.sector || !i.market_cap_category || i.market_cap_category === 'Unknown').length;
@@ -42,10 +41,11 @@ export function useEnrichMetadata(watchlist: WatchlistItem[] | undefined, isAuth
     const stats = computeStats(watchlist);
     setEnrichmentState(prev => ({ ...prev, ...stats }));
 
+    // Find items that need enrichment AND haven't been attempted this session
     const itemsToEnrich = watchlist.filter(item => {
-      const needsEnrichment = !item.sector || item.market_cap_category === 'Unknown' || !item.market_cap_category;
-      const notYetEnriched = !enrichedSymbols.has(`${item.symbol}-${item.market}`);
-      return needsEnrichment && notYetEnriched;
+      const needsEnrichment = !item.sector || !item.market_cap_category || item.market_cap_category === 'Unknown';
+      const key = `${item.id}`;
+      return needsEnrichment && !enrichAttempted.has(key);
     });
 
     if (itemsToEnrich.length === 0) return;
@@ -54,31 +54,38 @@ export function useEnrichMetadata(watchlist: WatchlistItem[] | undefined, isAuth
       enrichingRef.current = true;
       setEnrichmentState(prev => ({ ...prev, isEnriching: true, errors: [] }));
 
+      // Mark as attempted immediately to prevent duplicate calls
+      itemsToEnrich.forEach(item => enrichAttempted.add(item.id));
+
       try {
         console.log(`Enriching metadata for ${itemsToEnrich.length} items`);
-        itemsToEnrich.forEach(item => enrichedSymbols.add(`${item.symbol}-${item.market}`));
 
         const { data: { session } } = await supabase.auth.getSession();
 
         const response = await supabase.functions.invoke('enrich-stock-metadata', {
           body: {
-            symbols: itemsToEnrich.map(item => ({ symbol: item.symbol, market: item.market, id: item.id })),
+            symbols: itemsToEnrich.map(item => ({
+              symbol: item.symbol,
+              market: item.market,
+              id: item.id,
+              company_name: item.company_name,
+            })),
             updateDatabase: isAuthenticated && !!session,
           },
         });
 
         if (response.error) {
           console.error('Enrichment invocation error:', response.error);
+          // Allow retry on next load
+          itemsToEnrich.forEach(item => enrichAttempted.delete(item.id));
           setEnrichmentState(prev => ({ ...prev, errors: [response.error.message || 'Enrichment failed'] }));
-          // Allow retry
-          itemsToEnrich.forEach(item => enrichedSymbols.delete(`${item.symbol}-${item.market}`));
           return;
         }
 
         const metadata: Record<string, StockMetadata> = response.data?.metadata || {};
         const apiErrors: string[] = response.data?.errors || [];
 
-        // Update local query cache
+        // Update local query cache with enriched data
         const enrichedWatchlist = watchlist.map(item => {
           const meta = metadata[item.symbol];
           if (meta && !meta.fetchError) {
@@ -104,7 +111,7 @@ export function useEnrichMetadata(watchlist: WatchlistItem[] | undefined, isAuth
         console.log(`Enrichment complete: ${response.data?.stats?.success || 0} success, ${response.data?.stats?.failed || 0} failed`);
       } catch (err) {
         console.error('Failed to enrich metadata:', err);
-        itemsToEnrich.forEach(item => enrichedSymbols.delete(`${item.symbol}-${item.market}`));
+        itemsToEnrich.forEach(item => enrichAttempted.delete(item.id));
         setEnrichmentState(prev => ({ ...prev, errors: ['Enrichment request failed'] }));
       } finally {
         enrichingRef.current = false;
