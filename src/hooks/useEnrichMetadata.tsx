@@ -31,7 +31,7 @@ export function useEnrichMetadata(watchlist: WatchlistItem[] | undefined, isAuth
 
   const computeStats = useCallback((items: WatchlistItem[]) => {
     const total = items.length;
-    const missing = items.filter(i => !i.sector || !i.market_cap_category || i.market_cap_category === 'Unknown' || i.market_cap_category === 'Unclassified').length;
+    const missing = items.filter(i => !i.sector || !i.market_cap_category || i.market_cap_category === 'Unknown' || i.market_cap_category === 'Unclassified' || i.market_cap_category === 'unknown').length;
     return { totalStocks: total, missingMetadata: missing, missingPercent: total > 0 ? (missing / total) * 100 : 0 };
   }, []);
 
@@ -43,7 +43,7 @@ export function useEnrichMetadata(watchlist: WatchlistItem[] | undefined, isAuth
 
     // Find items that need enrichment AND haven't been attempted this session
     const itemsToEnrich = watchlist.filter(item => {
-      const needsEnrichment = !item.sector || !item.market_cap_category || item.market_cap_category === 'Unknown' || item.market_cap_category === 'Unclassified';
+      const needsEnrichment = !item.sector || !item.market_cap_category || item.market_cap_category === 'Unknown' || item.market_cap_category === 'Unclassified' || item.market_cap_category === 'unknown';
       const key = `${item.id}`;
       return needsEnrichment && !enrichAttempted.has(key);
     });

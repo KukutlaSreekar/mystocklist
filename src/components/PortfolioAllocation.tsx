@@ -45,6 +45,16 @@ const MARKET_CAP_COLORS: Record<string, string> = {
   "Unclassified": "hsl(var(--muted-foreground))",
 };
 
+// Normalize snake_case DB values to display labels
+function normalizeCapCategory(cat: string | null): string {
+  if (!cat) return 'Unclassified';
+  const map: Record<string, string> = {
+    'large_cap': 'Large Cap', 'mid_cap': 'Mid Cap', 'small_cap': 'Small Cap',
+    'Large Cap': 'Large Cap', 'Mid Cap': 'Mid Cap', 'Small Cap': 'Small Cap',
+  };
+  return map[cat] || 'Unclassified';
+}
+
 // Fallback sector for stocks without any metadata
 const FALLBACK_SECTOR = 'Other';
 
@@ -165,7 +175,7 @@ export function PortfolioAllocation({ watchlist, prices, onFilterChange, isEnric
     const capMap = new Map<string, WatchlistItem[]>();
     
     watchlist.forEach(stock => {
-      const category = stock.market_cap_category || 'Unclassified';
+      const category = normalizeCapCategory(stock.market_cap_category);
       const existing = capMap.get(category) || [];
       capMap.set(category, [...existing, stock]);
     });
