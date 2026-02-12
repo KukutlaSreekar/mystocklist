@@ -11,8 +11,8 @@ interface StockMetadata {
   fetchError?: string;
 }
 
-// Session-level cache of enriched symbols
-const enrichedSymbols = new Set<string>();
+// Session-level cache of enriched symbols (reset when all values are null)
+let enrichedSymbols = new Set<string>();
 
 export interface EnrichmentState {
   isEnriching: boolean;
