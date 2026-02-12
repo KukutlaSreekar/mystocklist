@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase, WatchlistItem } from "@/lib/supabase";
 
@@ -8,19 +8,40 @@ interface StockMetadata {
   industry: string | null;
   marketCap: number | null;
   marketCapCategory: string | null;
+  fetchError?: string;
 }
 
-// Cache to track which symbols we've already enriched in this session
+// Session-level cache of enriched symbols
 const enrichedSymbols = new Set<string>();
+
+export interface EnrichmentState {
+  isEnriching: boolean;
+  totalStocks: number;
+  missingMetadata: number;
+  missingPercent: number;
+  errors: string[];
+}
 
 export function useEnrichMetadata(watchlist: WatchlistItem[] | undefined, isAuthenticated: boolean = false) {
   const queryClient = useQueryClient();
   const enrichingRef = useRef(false);
+  const [enrichmentState, setEnrichmentState] = useState<EnrichmentState>({
+    isEnriching: false, totalStocks: 0, missingMetadata: 0, missingPercent: 0, errors: [],
+  });
+
+  // Compute missing metadata stats
+  const computeStats = useCallback((items: WatchlistItem[]) => {
+    const total = items.length;
+    const missing = items.filter(i => !i.sector || !i.market_cap_category || i.market_cap_category === 'Unknown').length;
+    return { totalStocks: total, missingMetadata: missing, missingPercent: total > 0 ? (missing / total) * 100 : 0 };
+  }, []);
 
   useEffect(() => {
     if (!watchlist || watchlist.length === 0 || enrichingRef.current) return;
 
-    // Find items that need enrichment (missing sector or have Unknown market cap)
+    const stats = computeStats(watchlist);
+    setEnrichmentState(prev => ({ ...prev, ...stats }));
+
     const itemsToEnrich = watchlist.filter(item => {
       const needsEnrichment = !item.sector || item.market_cap_category === 'Unknown' || !item.market_cap_category;
       const notYetEnriched = !enrichedSymbols.has(`${item.symbol}-${item.market}`);
@@ -31,39 +52,36 @@ export function useEnrichMetadata(watchlist: WatchlistItem[] | undefined, isAuth
 
     const enrichItems = async () => {
       enrichingRef.current = true;
-      
+      setEnrichmentState(prev => ({ ...prev, isEnriching: true, errors: [] }));
+
       try {
         console.log(`Enriching metadata for ${itemsToEnrich.length} items`);
-        
-        // Mark these as being enriched to prevent duplicate calls
-        itemsToEnrich.forEach(item => {
-          enrichedSymbols.add(`${item.symbol}-${item.market}`);
-        });
+        itemsToEnrich.forEach(item => enrichedSymbols.add(`${item.symbol}-${item.market}`));
 
         const { data: { session } } = await supabase.auth.getSession();
 
         const response = await supabase.functions.invoke('enrich-stock-metadata', {
           body: {
-            symbols: itemsToEnrich.map(item => ({
-              symbol: item.symbol,
-              market: item.market,
-              id: item.id,
-            })),
+            symbols: itemsToEnrich.map(item => ({ symbol: item.symbol, market: item.market, id: item.id })),
             updateDatabase: isAuthenticated && !!session,
           },
         });
 
         if (response.error) {
-          console.error('Enrichment error:', response.error);
+          console.error('Enrichment invocation error:', response.error);
+          setEnrichmentState(prev => ({ ...prev, errors: [response.error.message || 'Enrichment failed'] }));
+          // Allow retry
+          itemsToEnrich.forEach(item => enrichedSymbols.delete(`${item.symbol}-${item.market}`));
           return;
         }
 
         const metadata: Record<string, StockMetadata> = response.data?.metadata || {};
-        
-        // Update local query cache with enriched data
+        const apiErrors: string[] = response.data?.errors || [];
+
+        // Update local query cache
         const enrichedWatchlist = watchlist.map(item => {
           const meta = metadata[item.symbol];
-          if (meta) {
+          if (meta && !meta.fetchError) {
             return {
               ...item,
               sector: meta.sector || item.sector,
@@ -73,27 +91,30 @@ export function useEnrichMetadata(watchlist: WatchlistItem[] | undefined, isAuth
           return item;
         });
 
-        // Update query cache - use the correct query key based on auth state
         if (isAuthenticated) {
           queryClient.setQueryData(["watchlist", session?.user?.id], enrichedWatchlist);
         } else {
-          // For public watchlist, find the user_id from the first item
           const userId = watchlist[0]?.user_id;
-          if (userId) {
-            queryClient.setQueryData(["watchlist-public", userId], enrichedWatchlist);
-          }
+          if (userId) queryClient.setQueryData(["watchlist-public", userId], enrichedWatchlist);
         }
 
-        console.log('Metadata enrichment complete');
+        const newStats = computeStats(enrichedWatchlist);
+        setEnrichmentState(prev => ({ ...prev, ...newStats, errors: apiErrors }));
+
+        console.log(`Enrichment complete: ${response.data?.stats?.success || 0} success, ${response.data?.stats?.failed || 0} failed`);
       } catch (err) {
         console.error('Failed to enrich metadata:', err);
+        itemsToEnrich.forEach(item => enrichedSymbols.delete(`${item.symbol}-${item.market}`));
+        setEnrichmentState(prev => ({ ...prev, errors: ['Enrichment request failed'] }));
       } finally {
         enrichingRef.current = false;
+        setEnrichmentState(prev => ({ ...prev, isEnriching: false }));
       }
     };
 
-    // Debounce the enrichment to avoid too many calls
     const timeoutId = setTimeout(enrichItems, 500);
     return () => clearTimeout(timeoutId);
-  }, [watchlist, isAuthenticated, queryClient]);
+  }, [watchlist, isAuthenticated, queryClient, computeStats]);
+
+  return enrichmentState;
 }
