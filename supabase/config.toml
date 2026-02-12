@@ -2,3 +2,6 @@ project_id = "dafbnqqlsvftdirdbsig"
 
 [functions.enrich-stock-metadata]
 verify_jwt = false
+
+[functions.compute-cap-rankings]
+verify_jwt = false

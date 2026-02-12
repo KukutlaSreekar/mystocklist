@@ -46,6 +46,7 @@ export type Database = {
       }
       stock_symbols: {
         Row: {
+          cap_category: string | null
           company_name: string | null
           created_at: string
           id: string
@@ -57,6 +58,7 @@ export type Database = {
           volume: number | null
         }
         Insert: {
+          cap_category?: string | null
           company_name?: string | null
           created_at?: string
           id?: string
@@ -68,6 +70,7 @@ export type Database = {
           volume?: number | null
         }
         Update: {
+          cap_category?: string | null
           company_name?: string | null
           created_at?: string
           id?: string
