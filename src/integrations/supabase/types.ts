@@ -44,6 +44,33 @@ export type Database = {
         }
         Relationships: []
       }
+      stock_cap_categories: {
+        Row: {
+          cap_category: string
+          id: string
+          last_updated: string
+          market: string
+          market_cap: number | null
+          symbol: string
+        }
+        Insert: {
+          cap_category?: string
+          id?: string
+          last_updated?: string
+          market?: string
+          market_cap?: number | null
+          symbol: string
+        }
+        Update: {
+          cap_category?: string
+          id?: string
+          last_updated?: string
+          market?: string
+          market_cap?: number | null
+          symbol?: string
+        }
+        Relationships: []
+      }
       stock_symbols: {
         Row: {
           cap_category: string | null
