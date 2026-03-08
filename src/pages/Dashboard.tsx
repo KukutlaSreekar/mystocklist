@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useWatchlist, useUpdateStock, useDeleteStock } from "@/hooks/useWatchlist";
 import { useStockPrices } from "@/hooks/useStockPrices";
 import { useEnrichMetadata } from "@/hooks/useEnrichMetadata";
+import { useCapCategories } from "@/hooks/useCapCategories";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import { WatchlistTable } from "@/components/WatchlistTable";
 import { AddStockForm } from "@/components/AddStockForm";
@@ -26,23 +27,37 @@ export default function Dashboard() {
   // Enrich stock metadata (sector, market cap) from Yahoo Finance
   const enrichmentState = useEnrichMetadata(watchlist, true);
 
+  // Fetch cap categories from reference table
+  const { data: capCategories = {} } = useCapCategories(
+    watchlist?.map(s => ({ symbol: s.symbol, market: s.market }))
+  );
+
+  // Merge cap categories from reference table into watchlist
+  const watchlistWithCaps = useMemo(() => {
+    if (!watchlist) return [];
+    return watchlist.map(stock => ({
+      ...stock,
+      market_cap_category: capCategories[stock.symbol] || 'Unclassified',
+    }));
+  }, [watchlist, capCategories]);
+
   // Filter watchlist based on allocation filter
   const filteredWatchlist = useMemo(() => {
-    if (!watchlist || !allocationFilter) return watchlist || [];
+    if (!allocationFilter) return watchlistWithCaps;
     
-    return watchlist.filter(stock => {
+    return watchlistWithCaps.filter(stock => {
       if (allocationFilter.type === 'sector') {
         const stockSector = stock.sector || 'Other';
         return stockSector === allocationFilter.value;
       } else if (allocationFilter.type === 'marketCap') {
         const raw = stock.market_cap_category;
         const normalized = !raw ? 'Unclassified' : 
-          ({ 'large_cap': 'Large Cap', 'mid_cap': 'Mid Cap', 'small_cap': 'Small Cap' }[raw] || raw);
+          ({ 'large_cap': 'Large Cap', 'mid_cap': 'Mid Cap', 'small_cap': 'Small Cap', 'Large Cap': 'Large Cap', 'Mid Cap': 'Mid Cap', 'Small Cap': 'Small Cap' }[raw] || raw);
         return normalized === allocationFilter.value;
       }
       return true;
     });
-  }, [watchlist, allocationFilter]);
+  }, [watchlistWithCaps, allocationFilter]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -92,7 +107,7 @@ export default function Dashboard() {
         </div>
 
         {/* Portfolio Allocation Section */}
-        {watchlist && watchlist.length > 0 && (
+        {watchlistWithCaps.length > 0 && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -111,7 +126,7 @@ export default function Dashboard() {
               )}
             </div>
             <PortfolioAllocation 
-              watchlist={watchlist} 
+              watchlist={watchlistWithCaps} 
               prices={prices}
               onFilterChange={setAllocationFilter}
               isEnriching={enrichmentState.isEnriching}
