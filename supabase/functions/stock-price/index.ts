@@ -218,7 +218,20 @@ serve(async (req) => {
         try {
           console.log(`Fetching price for ${yahooSymbol}`);
           const yahooData = await fetchYahooQuote(yahooSymbol);
-          const priceData = parseYahooResponse(yahooData, stockMarket);
+          let priceData = parseYahooResponse(yahooData, stockMarket);
+          
+          // If data is stale (>2 days old) or change is 0 with old data, try fallback
+          const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
+          if (priceData && (now - priceData.lastUpdated > TWO_DAYS || 
+              (priceData.change === 0 && priceData.changePercent === 0 && now - priceData.lastUpdated > 60 * 60 * 1000))) {
+            console.log(`Stale data for ${yahooSymbol}, trying fallback...`);
+            const fallback = await fetchYahooQuoteSummary(yahooSymbol);
+            if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
+              fallback.market = stockMarket;
+              priceData = fallback;
+              console.log(`Fallback succeeded for ${symbol}: ${priceData.price}`);
+            }
+          }
           
           if (priceData) {
             prices[symbol] = priceData;
