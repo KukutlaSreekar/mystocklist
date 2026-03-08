@@ -86,9 +86,27 @@ serve(async (req) => {
       updates.push({ id: stock.id, cap_category: category, market_cap: mcap });
     }
 
-    // Step 4: Batch update stock_symbols
+    // Step 4: Update stock_cap_categories reference table + stock_symbols
     let updateCount = 0;
+    const symbolToCategory = new Map<string, string>();
+
     await Promise.all(updates.map(async (u) => {
+      const stock = allStocks.find(s => s.id === u.id);
+      if (!stock) return;
+      symbolToCategory.set(stock.symbol, u.cap_category);
+
+      // Upsert into reference table
+      await supabase
+        .from('stock_cap_categories')
+        .upsert({
+          symbol: stock.symbol,
+          market: 'NSE',
+          cap_category: u.cap_category,
+          market_cap: u.market_cap,
+          last_updated: new Date().toISOString(),
+        }, { onConflict: 'symbol,market' });
+
+      // Keep stock_symbols in sync
       const updateFields: Record<string, unknown> = { cap_category: u.cap_category };
       if (u.market_cap) updateFields.market_cap = u.market_cap;
       const { error } = await supabase
@@ -97,14 +115,6 @@ serve(async (req) => {
         .eq('id', u.id);
       if (!error) updateCount++;
     }));
-
-    // Step 5: Update watchlist items
-    const symbolToCategory = new Map<string, string>();
-    for (const u of updates) {
-      const stock = allStocks.find(s => s.id === u.id);
-      if (stock) symbolToCategory.set(stock.symbol, u.cap_category);
-    }
-    await updateWatchlistItems(supabase, symbolToCategory);
 
     // Stats
     const largeCaps = updates.filter(u => u.cap_category === 'Large Cap').length;
