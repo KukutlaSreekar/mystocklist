@@ -10,6 +10,7 @@ export interface StockPrice {
   market?: string;
   isMarketClosed?: boolean;
   lastUpdated?: number;
+  companyName?: string;
 }
 
 export function useStockPrices(watchlist: WatchlistItem[] | undefined) {

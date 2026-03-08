@@ -307,9 +307,9 @@ export function WatchlistTable({
                     </div>
                     <div>
                       <div className="font-mono font-bold text-foreground">{stock.symbol}</div>
-                      {stock.company_name && (
+                      {(stock.company_name || price?.companyName) && (
                         <div className="text-sm text-muted-foreground truncate max-w-[200px]">
-                          {stock.company_name}
+                          {stock.company_name || price?.companyName}
                         </div>
                       )}
                     </div>
