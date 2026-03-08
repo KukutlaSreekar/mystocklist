@@ -42,8 +42,10 @@ export default function PublicWatchlist() {
         const stockSector = stock.sector || 'Other';
         return stockSector === allocationFilter.value;
       } else if (allocationFilter.type === 'marketCap') {
-        const stockCap = stock.market_cap_category || 'Unknown';
-        return stockCap === allocationFilter.value;
+        const raw = stock.market_cap_category;
+        const normalized = !raw ? 'Unclassified' : 
+          ({ 'large_cap': 'Large Cap', 'mid_cap': 'Mid Cap', 'small_cap': 'Small Cap' }[raw] || raw);
+        return normalized === allocationFilter.value;
       }
       return true;
     });
