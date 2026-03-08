@@ -45,8 +45,8 @@ const YAHOO_SUFFIX: Record<string, string> = {
 };
 
 async function fetchYahooQuote(symbol: string): Promise<any> {
-  // Use Yahoo Finance v8 API (unofficial but widely used)
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  // Use Yahoo Finance v8 chart API
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
   
   const response = await fetch(url, {
     headers: {
@@ -61,13 +61,53 @@ async function fetchYahooQuote(symbol: string): Promise<any> {
   return await response.json();
 }
 
+// Fallback: use Yahoo Finance quote summary for fresher data
+async function fetchYahooQuoteSummary(symbol: string): Promise<PriceData | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+    });
+    
+    if (!response.ok) return null;
+    const data = await response.json();
+    const result = data?.chart?.result?.[0];
+    if (!result) return null;
+    
+    const meta = result.meta;
+    const price = meta?.regularMarketPrice;
+    const prevClose = meta?.previousClose || meta?.chartPreviousClose;
+    if (!price) return null;
+    
+    const change = prevClose ? price - prevClose : 0;
+    const changePct = prevClose ? (change / prevClose) * 100 : 0;
+    const lastTime = meta?.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now();
+    const isOld = Date.now() - lastTime > 60 * 60 * 1000;
+    
+    return {
+      price: Number(price.toFixed(2)),
+      change: Number(change.toFixed(2)),
+      changePercent: Number(changePct.toFixed(2)),
+      previousClose: Number((prevClose || price).toFixed(2)),
+      market: '',
+      isMarketClosed: isOld,
+      lastUpdated: lastTime,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseYahooResponse(data: any, market: string): PriceData | null {
   try {
     const result = data?.chart?.result?.[0];
     if (!result) return null;
     
     const meta = result.meta;
-    const quote = result.indicators?.quote?.[0];
+    const timestamps = result.timestamp;
+    const quotes = result.indicators?.quote?.[0];
     
     // Get current/regular market price
     const regularMarketPrice = meta?.regularMarketPrice;
@@ -78,30 +118,54 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
       return null;
     }
     
-    // Use the best available price
-    const currentPrice = regularMarketPrice || previousClose;
+    // Try to get the most recent valid close from the time series (range=5d)
+    // This helps when regularMarketPrice is stale
+    let bestPrice = regularMarketPrice;
+    let bestTime = regularMarketTime ? regularMarketTime * 1000 : Date.now();
+    let bestPrevClose = previousClose;
+    
+    if (timestamps && quotes && timestamps.length > 1) {
+      // Walk backwards to find most recent trading day with valid data
+      for (let i = timestamps.length - 1; i >= 0; i--) {
+        const close = quotes.close?.[i];
+        if (close != null && close > 0) {
+          bestPrice = close;
+          bestTime = timestamps[i] * 1000;
+          // Use the previous day's close for change calculation
+          if (i > 0) {
+            for (let j = i - 1; j >= 0; j--) {
+              const prevClose = quotes.close?.[j];
+              if (prevClose != null && prevClose > 0) {
+                bestPrevClose = prevClose;
+                break;
+              }
+            }
+          }
+          break;
+        }
+      }
+    }
+    
+    const currentPrice = bestPrice || previousClose;
+    const effectivePrevClose = bestPrevClose || previousClose || currentPrice;
     
     // Calculate change
-    const change = previousClose ? currentPrice - previousClose : 0;
-    const changePercent = previousClose ? (change / previousClose) * 100 : 0;
+    const change = effectivePrevClose ? currentPrice - effectivePrevClose : 0;
+    const changePercent = effectivePrevClose ? (change / effectivePrevClose) * 100 : 0;
     
     // Determine if market is closed
-    // Market is considered closed if:
-    // - regularMarketTime is older than 1 hour
-    // - OR the market state indicates closed
     const now = Date.now();
-    const lastTradeTime = regularMarketTime ? regularMarketTime * 1000 : now;
-    const timeSinceLastTrade = now - lastTradeTime;
-    const isMarketClosed = timeSinceLastTrade > 60 * 60 * 1000; // More than 1 hour old
+    const timeSinceLastTrade = now - bestTime;
+    const isMarketClosed = timeSinceLastTrade > 60 * 60 * 1000;
     
     return {
       price: Number(currentPrice.toFixed(2)),
       change: Number(change.toFixed(2)),
       changePercent: Number(changePercent.toFixed(2)),
-      previousClose: Number((previousClose || currentPrice).toFixed(2)),
+      previousClose: Number((effectivePrevClose || currentPrice).toFixed(2)),
       market,
       isMarketClosed,
-      lastUpdated: lastTradeTime,
+      lastUpdated: bestTime,
     };
   } catch (err) {
     console.error('Error parsing Yahoo response:', err);
@@ -154,7 +218,20 @@ serve(async (req) => {
         try {
           console.log(`Fetching price for ${yahooSymbol}`);
           const yahooData = await fetchYahooQuote(yahooSymbol);
-          const priceData = parseYahooResponse(yahooData, stockMarket);
+          let priceData = parseYahooResponse(yahooData, stockMarket);
+          
+          // If data is stale (>2 days old) or change is 0 with old data, try fallback
+          const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
+          if (priceData && (now - priceData.lastUpdated > TWO_DAYS || 
+              (priceData.change === 0 && priceData.changePercent === 0 && now - priceData.lastUpdated > 60 * 60 * 1000))) {
+            console.log(`Stale data for ${yahooSymbol}, trying fallback...`);
+            const fallback = await fetchYahooQuoteSummary(yahooSymbol);
+            if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
+              fallback.market = stockMarket;
+              priceData = fallback;
+              console.log(`Fallback succeeded for ${symbol}: ${priceData.price}`);
+            }
+          }
           
           if (priceData) {
             prices[symbol] = priceData;
