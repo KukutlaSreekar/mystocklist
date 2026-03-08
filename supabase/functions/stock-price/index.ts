@@ -45,8 +45,8 @@ const YAHOO_SUFFIX: Record<string, string> = {
 };
 
 async function fetchYahooQuote(symbol: string): Promise<any> {
-  // Use Yahoo Finance v8 API (unofficial but widely used)
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  // Use Yahoo Finance v8 chart API
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
   
   const response = await fetch(url, {
     headers: {
@@ -59,6 +59,45 @@ async function fetchYahooQuote(symbol: string): Promise<any> {
   }
   
   return await response.json();
+}
+
+// Fallback: use Yahoo Finance quote summary for fresher data
+async function fetchYahooQuoteSummary(symbol: string): Promise<PriceData | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+    });
+    
+    if (!response.ok) return null;
+    const data = await response.json();
+    const result = data?.chart?.result?.[0];
+    if (!result) return null;
+    
+    const meta = result.meta;
+    const price = meta?.regularMarketPrice;
+    const prevClose = meta?.previousClose || meta?.chartPreviousClose;
+    if (!price) return null;
+    
+    const change = prevClose ? price - prevClose : 0;
+    const changePct = prevClose ? (change / prevClose) * 100 : 0;
+    const lastTime = meta?.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now();
+    const isOld = Date.now() - lastTime > 60 * 60 * 1000;
+    
+    return {
+      price: Number(price.toFixed(2)),
+      change: Number(change.toFixed(2)),
+      changePercent: Number(changePct.toFixed(2)),
+      previousClose: Number((prevClose || price).toFixed(2)),
+      market: '',
+      isMarketClosed: isOld,
+      lastUpdated: lastTime,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseYahooResponse(data: any, market: string): PriceData | null {
