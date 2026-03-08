@@ -18,6 +18,7 @@ interface PriceData {
   market: string;
   isMarketClosed: boolean;
   lastUpdated: number;
+  companyName?: string;
 }
 
 // Market suffix mapping for Yahoo Finance
@@ -94,6 +95,7 @@ async function fetchYahooQuoteSummary(symbol: string): Promise<PriceData | null>
       market: '',
       isMarketClosed: isOld,
       lastUpdated: lastTime,
+      companyName: meta?.shortName || meta?.longName || undefined,
     };
   } catch {
     return null;
@@ -166,6 +168,7 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
       market,
       isMarketClosed,
       lastUpdated: bestTime,
+      companyName: meta?.shortName || meta?.longName || undefined,
     };
   } catch (err) {
     console.error('Error parsing Yahoo response:', err);
