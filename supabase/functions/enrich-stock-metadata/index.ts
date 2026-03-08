@@ -58,6 +58,31 @@ interface StockMetadata {
   fetchError?: string;
 }
 
+// INR thresholds for Indian equities (Yahoo returns INR for .NS/.BO)
+// Large Cap: >= 50,000 crore INR = 500,000,000,000 INR
+// Mid Cap: >= 5,000 crore INR = 50,000,000,000 INR
+// Small Cap: < 5,000 crore INR
+const LARGE_CAP_INR = 500_000_000_000;  // 50,000 crore
+const MID_CAP_INR = 50_000_000_000;     // 5,000 crore
+
+// USD thresholds for international markets
+const LARGE_CAP_USD = 10_000_000_000;   // $10B
+const MID_CAP_USD = 2_000_000_000;      // $2B
+
+function classifyByMarketCap(marketCap: number | null | undefined, isIndian: boolean): string {
+  if (!marketCap || marketCap <= 0) return 'Unclassified';
+  if (isIndian) {
+    // Yahoo Finance returns market cap in INR for .NS/.BO symbols
+    if (marketCap >= LARGE_CAP_INR) return 'Large Cap';
+    if (marketCap >= MID_CAP_INR) return 'Mid Cap';
+    return 'Small Cap';
+  } else {
+    if (marketCap >= LARGE_CAP_USD) return 'Large Cap';
+    if (marketCap >= MID_CAP_USD) return 'Mid Cap';
+    return 'Small Cap';
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -82,39 +107,17 @@ serve(async (req) => {
     const metadata: Record<string, StockMetadata> = {};
     const errors: string[] = [];
 
-    // STEP 1: Look up precomputed cap_category from stock_symbols (SEBI rank-based)
-    // This is the ONLY source of truth for Indian market cap classification
-    const symbolNames = symbols.map((s: any) => s.symbol);
-    const { data: stockSymbolsData } = await supabase
-      .from('stock_symbols')
-      .select('symbol, market, cap_category, market_cap')
-      .in('symbol', symbolNames);
-
-    const capLookup = new Map<string, { cap_category: string | null; market_cap: number | null }>();
-    if (stockSymbolsData) {
-      for (const row of stockSymbolsData) {
-        capLookup.set(`${row.symbol}-${row.market}`, {
-          cap_category: row.cap_category,
-          market_cap: row.market_cap,
-        });
-      }
-    }
-
-    // STEP 2: Fetch sector/industry from Yahoo Finance
-    console.log('Fetching sector data from Yahoo Finance...');
+    // STEP 1: Fetch sector, industry, AND marketCap from Yahoo Finance
+    console.log('Fetching data from Yahoo Finance...');
     const yahooData = await fetchYahooQuote(symbols);
 
-    // STEP 3: Build metadata using Yahoo sector + precomputed cap_category
+    // STEP 2: Build metadata using Yahoo data + threshold-based classification
     for (const item of symbols) {
       const yData = yahooData[item.symbol];
-      const lookup = capLookup.get(`${item.symbol}-${item.market}`);
       const isIndian = item.market === 'NSE' || item.market === 'BSE';
 
-      // For Indian markets, ALWAYS use precomputed cap_category from stock_symbols
-      // For other markets, use threshold-based classification from Yahoo marketCap
-      const capCategory = isIndian
-        ? (lookup?.cap_category || 'Unclassified')
-        : classifyByThreshold(yData?.marketCap);
+      const marketCap = yData?.marketCap || null;
+      const capCategory = classifyByMarketCap(marketCap, isIndian);
 
       const sector = yData?.industry
         ? (INDUSTRY_TO_SECTOR[yData.industry] || yData.sector || null)
@@ -124,12 +127,12 @@ serve(async (req) => {
         symbol: item.symbol,
         sector,
         industry: yData?.industry || null,
-        marketCap: lookup?.market_cap || yData?.marketCap || null,
+        marketCap,
         marketCapCategory: capCategory,
       };
     }
 
-    // STEP 4: AI fallback for missing sector/industry only
+    // STEP 3: AI fallback for missing sector/industry only
     const missingSector = symbols.filter((s: any) => !metadata[s.symbol]?.sector);
     if (missingSector.length > 0) {
       console.log(`AI classifying sector for ${missingSector.length} symbols...`);
@@ -141,12 +144,11 @@ serve(async (req) => {
         if (aiResult && existing) {
           existing.sector = aiResult.sector || existing.sector;
           existing.industry = aiResult.industry || existing.industry;
-          // NEVER override cap_category from AI for Indian stocks
         }
       }
     }
 
-    // STEP 5: Update watchlist database if requested
+    // STEP 4: Update watchlist database if requested
     if (updateDatabase) {
       const authHeader = req.headers.get('Authorization');
       if (authHeader) {
@@ -156,7 +158,6 @@ serve(async (req) => {
             const updateFields: Record<string, unknown> = {};
             if (meta.sector) updateFields.sector = meta.sector;
             if (meta.marketCapCategory && meta.marketCapCategory !== 'Unclassified') {
-              // Convert to snake_case for watchlist check constraint
               const capMap: Record<string, string> = { 'Large Cap': 'large_cap', 'Mid Cap': 'mid_cap', 'Small Cap': 'small_cap' };
               updateFields.market_cap_category = capMap[meta.marketCapCategory] || meta.marketCapCategory;
             }
@@ -168,6 +169,22 @@ serve(async (req) => {
             }
           }
         }
+      }
+    }
+
+    // STEP 5: Also update stock_symbols table with market_cap and cap_category
+    for (const item of symbols) {
+      const meta = metadata[item.symbol];
+      if (meta && meta.marketCap && meta.marketCapCategory !== 'Unclassified') {
+        const capMap: Record<string, string> = { 'Large Cap': 'Large Cap', 'Mid Cap': 'Mid Cap', 'Small Cap': 'Small Cap' };
+        await supabase
+          .from('stock_symbols')
+          .update({
+            market_cap: meta.marketCap,
+            cap_category: capMap[meta.marketCapCategory!] || meta.marketCapCategory,
+          })
+          .eq('symbol', item.symbol)
+          .eq('market', item.market);
       }
     }
 
@@ -189,13 +206,6 @@ serve(async (req) => {
   }
 });
 
-function classifyByThreshold(marketCap?: number): string {
-  if (!marketCap) return 'Unclassified';
-  if (marketCap >= 10_000_000_000) return 'Large Cap';
-  if (marketCap >= 2_000_000_000) return 'Mid Cap';
-  return 'Small Cap';
-}
-
 async function fetchYahooQuote(symbols: { symbol: string; market: string }[]): Promise<Record<string, { sector?: string; industry?: string; marketCap?: number }>> {
   const results: Record<string, { sector?: string; industry?: string; marketCap?: number }> = {};
 
@@ -204,6 +214,7 @@ async function fetchYahooQuote(symbols: { symbol: string; market: string }[]): P
     return { orig: s.symbol, yahoo: suffix ? `${s.symbol}${suffix}` : s.symbol, market: s.market };
   });
 
+  // Try batch v6 API first
   try {
     const symbolStr = yahooSymbols.map(s => encodeURIComponent(s.yahoo)).join(',');
     const url = `https://query1.finance.yahoo.com/v6/finance/quote?symbols=${symbolStr}`;
@@ -226,7 +237,37 @@ async function fetchYahooQuote(symbols: { symbol: string; market: string }[]): P
       }
     }
   } catch (err) {
-    console.warn('Yahoo quote fetch error:', err);
+    console.warn('Yahoo v6 quote fetch error:', err);
+  }
+
+  // For symbols missing marketCap, try quoteSummary individually
+  const missingMcap = yahooSymbols.filter(s => !results[s.orig]?.marketCap);
+  if (missingMcap.length > 0 && missingMcap.length <= 30) {
+    console.log(`Fetching marketCap via quoteSummary for ${missingMcap.length} symbols...`);
+    const CONCURRENT = 5;
+    for (let i = 0; i < missingMcap.length; i += CONCURRENT) {
+      const batch = missingMcap.slice(i, i + CONCURRENT);
+      await Promise.all(batch.map(async (s) => {
+        try {
+          const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(s.yahoo)}?modules=price,assetProfile`;
+          const res = await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          const result = data?.quoteSummary?.result?.[0];
+          const mcap = result?.price?.marketCap?.raw;
+          const sector = result?.assetProfile?.sector;
+          const industry = result?.assetProfile?.industry;
+          const existing = results[s.orig] || {};
+          results[s.orig] = {
+            sector: existing.sector || sector || undefined,
+            industry: existing.industry || industry || undefined,
+            marketCap: mcap && mcap > 0 ? mcap : existing.marketCap,
+          };
+        } catch { /* skip */ }
+      }));
+    }
   }
 
   return results;
