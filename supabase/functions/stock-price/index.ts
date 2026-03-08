@@ -106,7 +106,8 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
     if (!result) return null;
     
     const meta = result.meta;
-    const quote = result.indicators?.quote?.[0];
+    const timestamps = result.timestamp;
+    const quotes = result.indicators?.quote?.[0];
     
     // Get current/regular market price
     const regularMarketPrice = meta?.regularMarketPrice;
@@ -117,30 +118,54 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
       return null;
     }
     
-    // Use the best available price
-    const currentPrice = regularMarketPrice || previousClose;
+    // Try to get the most recent valid close from the time series (range=5d)
+    // This helps when regularMarketPrice is stale
+    let bestPrice = regularMarketPrice;
+    let bestTime = regularMarketTime ? regularMarketTime * 1000 : Date.now();
+    let bestPrevClose = previousClose;
+    
+    if (timestamps && quotes && timestamps.length > 1) {
+      // Walk backwards to find most recent trading day with valid data
+      for (let i = timestamps.length - 1; i >= 0; i--) {
+        const close = quotes.close?.[i];
+        if (close != null && close > 0) {
+          bestPrice = close;
+          bestTime = timestamps[i] * 1000;
+          // Use the previous day's close for change calculation
+          if (i > 0) {
+            for (let j = i - 1; j >= 0; j--) {
+              const prevClose = quotes.close?.[j];
+              if (prevClose != null && prevClose > 0) {
+                bestPrevClose = prevClose;
+                break;
+              }
+            }
+          }
+          break;
+        }
+      }
+    }
+    
+    const currentPrice = bestPrice || previousClose;
+    const effectivePrevClose = bestPrevClose || previousClose || currentPrice;
     
     // Calculate change
-    const change = previousClose ? currentPrice - previousClose : 0;
-    const changePercent = previousClose ? (change / previousClose) * 100 : 0;
+    const change = effectivePrevClose ? currentPrice - effectivePrevClose : 0;
+    const changePercent = effectivePrevClose ? (change / effectivePrevClose) * 100 : 0;
     
     // Determine if market is closed
-    // Market is considered closed if:
-    // - regularMarketTime is older than 1 hour
-    // - OR the market state indicates closed
     const now = Date.now();
-    const lastTradeTime = regularMarketTime ? regularMarketTime * 1000 : now;
-    const timeSinceLastTrade = now - lastTradeTime;
-    const isMarketClosed = timeSinceLastTrade > 60 * 60 * 1000; // More than 1 hour old
+    const timeSinceLastTrade = now - bestTime;
+    const isMarketClosed = timeSinceLastTrade > 60 * 60 * 1000;
     
     return {
       price: Number(currentPrice.toFixed(2)),
       change: Number(change.toFixed(2)),
       changePercent: Number(changePercent.toFixed(2)),
-      previousClose: Number((previousClose || currentPrice).toFixed(2)),
+      previousClose: Number((effectivePrevClose || currentPrice).toFixed(2)),
       market,
       isMarketClosed,
-      lastUpdated: lastTradeTime,
+      lastUpdated: bestTime,
     };
   } catch (err) {
     console.error('Error parsing Yahoo response:', err);
