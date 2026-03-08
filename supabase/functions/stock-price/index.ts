@@ -18,6 +18,7 @@ interface PriceData {
   market: string;
   isMarketClosed: boolean;
   lastUpdated: number;
+  companyName?: string;
 }
 
 // Market suffix mapping for Yahoo Finance
