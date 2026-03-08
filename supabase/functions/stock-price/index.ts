@@ -168,6 +168,7 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
       market,
       isMarketClosed,
       lastUpdated: bestTime,
+      companyName: meta?.shortName || meta?.longName || undefined,
     };
   } catch (err) {
     console.error('Error parsing Yahoo response:', err);
