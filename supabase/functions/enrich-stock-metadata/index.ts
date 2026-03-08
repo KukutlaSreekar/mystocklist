@@ -172,16 +172,26 @@ serve(async (req) => {
       }
     }
 
-    // STEP 5: Also update stock_symbols table with market_cap and cap_category
+    // STEP 5: Update stock_cap_categories reference table
     for (const item of symbols) {
       const meta = metadata[item.symbol];
       if (meta && meta.marketCap && meta.marketCapCategory !== 'Unclassified') {
-        const capMap: Record<string, string> = { 'Large Cap': 'Large Cap', 'Mid Cap': 'Mid Cap', 'Small Cap': 'Small Cap' };
+        await supabase
+          .from('stock_cap_categories')
+          .upsert({
+            symbol: item.symbol,
+            market: item.market,
+            cap_category: meta.marketCapCategory,
+            market_cap: meta.marketCap,
+            last_updated: new Date().toISOString(),
+          }, { onConflict: 'symbol,market' });
+
+        // Also keep stock_symbols in sync
         await supabase
           .from('stock_symbols')
           .update({
             market_cap: meta.marketCap,
-            cap_category: capMap[meta.marketCapCategory!] || meta.marketCapCategory,
+            cap_category: meta.marketCapCategory,
           })
           .eq('symbol', item.symbol)
           .eq('market', item.market);
