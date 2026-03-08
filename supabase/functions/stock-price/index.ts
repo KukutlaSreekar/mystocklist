@@ -95,6 +95,7 @@ async function fetchYahooQuoteSummary(symbol: string): Promise<PriceData | null>
       market: '',
       isMarketClosed: isOld,
       lastUpdated: lastTime,
+      companyName: meta?.shortName || meta?.longName || undefined,
     };
   } catch {
     return null;
