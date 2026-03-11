@@ -22,6 +22,7 @@ export type WatchlistItem = {
   market: string;
   sector: string | null;
   market_cap_category: string | null;
+  isin: string | null;
   created_at: string;
   updated_at: string;
 };
