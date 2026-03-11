@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -195,17 +196,36 @@ serve(async (req) => {
       );
     }
 
+    // Resolve symbol aliases
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    const allSymbols = symbols.map((s: any) => s.symbol);
+    const { data: aliases } = await supabase
+      .from('symbol_aliases')
+      .select('alias_symbol, canonical_symbol, market')
+      .in('alias_symbol', allSymbols);
+
+    const aliasMap: Record<string, string> = {};
+    for (const a of aliases || []) {
+      aliasMap[`${a.alias_symbol}:${a.market}`] = a.canonical_symbol;
+    }
+
     const prices: Record<string, PriceData> = {};
     const now = Date.now();
 
     // Fetch prices for each symbol
     await Promise.all(
       symbols.map(async (symbolData: { symbol: string; market: string }) => {
-        const { symbol, market: stockMarket } = symbolData;
+        const { symbol: originalSymbol, market: stockMarket } = symbolData;
+        
+        // Resolve alias to canonical symbol for fetching
+        const canonical = aliasMap[`${originalSymbol}:${stockMarket}`] || originalSymbol;
         
         // Build the correct symbol for Yahoo Finance
         const suffix = YAHOO_SUFFIX[stockMarket] || '';
-        const yahooSymbol = suffix ? `${symbol}${suffix}` : symbol;
+        const yahooSymbol = suffix ? `${canonical}${suffix}` : canonical;
         const cacheKey = `price:${yahooSymbol}`;
 
         // Check cache first
@@ -213,7 +233,7 @@ serve(async (req) => {
         if (cached) {
           const cacheTTL = cached.data.isMarketClosed ? CACHE_TTL_CLOSED : CACHE_TTL_LIVE;
           if (now - cached.timestamp < cacheTTL) {
-            prices[symbol] = cached.data;
+            prices[originalSymbol] = cached.data;
             return;
           }
         }
@@ -232,26 +252,26 @@ serve(async (req) => {
             if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
               fallback.market = stockMarket;
               priceData = fallback;
-              console.log(`Fallback succeeded for ${symbol}: ${priceData.price}`);
+              console.log(`Fallback succeeded for ${originalSymbol}: ${priceData.price}`);
             }
           }
           
           if (priceData) {
-            prices[symbol] = priceData;
+            prices[originalSymbol] = priceData;
             priceCache.set(cacheKey, { data: priceData, timestamp: now });
-            console.log(`Got price for ${symbol}: ${priceData.price}`);
+            console.log(`Got price for ${originalSymbol}: ${priceData.price}`);
           } else {
             console.error(`No price data parsed for ${yahooSymbol}`);
             // Use cached data as fallback if available
             if (cached) {
-              prices[symbol] = { ...cached.data, isMarketClosed: true };
+              prices[originalSymbol] = { ...cached.data, isMarketClosed: true };
             }
           }
         } catch (err) {
           console.error(`Error fetching price for ${yahooSymbol}:`, err);
           // Use cached data as fallback if available
           if (cached) {
-            prices[symbol] = { ...cached.data, isMarketClosed: true };
+            prices[originalSymbol] = { ...cached.data, isMarketClosed: true };
           }
         }
       })

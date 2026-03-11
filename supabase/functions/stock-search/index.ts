@@ -63,15 +63,25 @@ serve(async (req) => {
       );
     }
 
+    // Check if the query matches an alias and resolve to canonical symbol
+    const { data: aliasMatch } = await supabase
+      .from('symbol_aliases')
+      .select('canonical_symbol')
+      .eq('market', market)
+      .ilike('alias_symbol', sanitizedQuery)
+      .limit(1)
+      .maybeSingle();
+
+    const effectiveQuery = aliasMatch?.canonical_symbol?.toLowerCase() || sanitizedQuery;
+
     const suffix = MARKET_SUFFIX[market] || '';
 
     // Query using separate ilike calls instead of string interpolation
-    // This prevents PostgREST filter injection attacks
     const { data: stocks, count, error } = await supabase
       .from('stock_symbols')
-      .select('symbol, company_name, market, market_cap, volume, popularity_score', { count: 'exact' })
+      .select('symbol, company_name, market, market_cap, volume, popularity_score, isin', { count: 'exact' })
       .eq('market', market)
-      .or(`symbol.ilike.${sanitizedQuery}%,company_name.ilike.${sanitizedQuery}%`)
+      .or(`symbol.ilike.${effectiveQuery}%,company_name.ilike.${effectiveQuery}%`)
       .order('popularity_score', { ascending: false })
       .order('market_cap', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1);
@@ -91,6 +101,7 @@ serve(async (req) => {
       market: stock.market,
       marketCap: stock.market_cap,
       volume: stock.volume,
+      isin: stock.isin || null,
     }));
 
     return new Response(

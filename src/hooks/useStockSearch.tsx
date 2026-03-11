@@ -8,6 +8,7 @@ export interface StockSearchResult {
   market: string;
   marketCap?: number;
   volume?: number;
+  isin?: string | null;
 }
 
 interface SearchState {
