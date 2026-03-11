@@ -72,16 +72,21 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    const effectiveQuery = aliasMatch?.canonical_symbol?.toLowerCase() || sanitizedQuery;
+    const canonicalSymbol = aliasMatch?.canonical_symbol?.toLowerCase();
 
     const suffix = MARKET_SUFFIX[market] || '';
 
-    // Query using separate ilike calls instead of string interpolation
+    // Build OR filter: search original query AND canonical symbol (if alias found)
+    let orFilter = `symbol.ilike.${sanitizedQuery}%,company_name.ilike.${sanitizedQuery}%`;
+    if (canonicalSymbol && canonicalSymbol !== sanitizedQuery) {
+      orFilter += `,symbol.ilike.${canonicalSymbol}%,company_name.ilike.${canonicalSymbol}%`;
+    }
+
     const { data: stocks, count, error } = await supabase
       .from('stock_symbols')
       .select('symbol, company_name, market, market_cap, volume, popularity_score, isin', { count: 'exact' })
       .eq('market', market)
-      .or(`symbol.ilike.${effectiveQuery}%,company_name.ilike.${effectiveQuery}%`)
+      .or(orFilter)
       .order('popularity_score', { ascending: false })
       .order('market_cap', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1);
