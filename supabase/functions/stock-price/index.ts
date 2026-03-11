@@ -252,7 +252,7 @@ serve(async (req) => {
             if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
               fallback.market = stockMarket;
               priceData = fallback;
-              console.log(`Fallback succeeded for ${symbol}: ${priceData.price}`);
+              console.log(`Fallback succeeded for ${originalSymbol}: ${priceData.price}`);
             }
           }
           
