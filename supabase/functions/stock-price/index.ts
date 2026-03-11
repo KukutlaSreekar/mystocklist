@@ -264,7 +264,7 @@ serve(async (req) => {
             console.error(`No price data parsed for ${yahooSymbol}`);
             // Use cached data as fallback if available
             if (cached) {
-              prices[symbol] = { ...cached.data, isMarketClosed: true };
+              prices[originalSymbol] = { ...cached.data, isMarketClosed: true };
             }
           }
         } catch (err) {
