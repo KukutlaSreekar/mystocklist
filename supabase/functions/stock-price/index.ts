@@ -233,7 +233,7 @@ serve(async (req) => {
         if (cached) {
           const cacheTTL = cached.data.isMarketClosed ? CACHE_TTL_CLOSED : CACHE_TTL_LIVE;
           if (now - cached.timestamp < cacheTTL) {
-            prices[symbol] = cached.data;
+            prices[originalSymbol] = cached.data;
             return;
           }
         }
