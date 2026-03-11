@@ -271,7 +271,7 @@ serve(async (req) => {
           console.error(`Error fetching price for ${yahooSymbol}:`, err);
           // Use cached data as fallback if available
           if (cached) {
-            prices[symbol] = { ...cached.data, isMarketClosed: true };
+            prices[originalSymbol] = { ...cached.data, isMarketClosed: true };
           }
         }
       })
