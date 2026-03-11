@@ -257,9 +257,9 @@ serve(async (req) => {
           }
           
           if (priceData) {
-            prices[symbol] = priceData;
+            prices[originalSymbol] = priceData;
             priceCache.set(cacheKey, { data: priceData, timestamp: now });
-            console.log(`Got price for ${symbol}: ${priceData.price}`);
+            console.log(`Got price for ${originalSymbol}: ${priceData.price}`);
           } else {
             console.error(`No price data parsed for ${yahooSymbol}`);
             // Use cached data as fallback if available
