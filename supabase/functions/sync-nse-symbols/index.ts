@@ -378,6 +378,7 @@ serve(async (req) => {
       market_cap: null,
       volume: null,
       popularity_score: Math.max(1, 1000 - index),
+      isin: stock.isin || null,
     }));
     
     // Upsert stocks
