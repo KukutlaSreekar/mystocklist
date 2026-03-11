@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
-import { Navigate } from "react-router-dom";
+import { Navigate, Link } from "react-router-dom";
 
 export default function Login() {
   const { signIn, user, loading: authLoading } = useAuth();
@@ -81,6 +81,15 @@ export default function Login() {
             "Sign in"
           )}
         </Button>
+
+        <div className="text-center">
+          <Link
+            to="/forgot-password"
+            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+          >
+            Forgot your password?
+          </Link>
+        </div>
       </form>
     </AuthLayout>
   );

@@ -20,6 +20,7 @@ interface StockRecord {
   market_cap: number | null;
   volume: number | null;
   popularity_score: number;
+  isin: string | null;
 }
 
 // Retry helper with exponential backoff
@@ -277,6 +278,7 @@ async function upsertStocks(
           market_cap: s.market_cap,
           volume: s.volume,
           popularity_score: s.popularity_score,
+          isin: s.isin,
           updated_at: new Date().toISOString(),
         })),
         { onConflict: 'symbol,market' }
@@ -376,6 +378,7 @@ serve(async (req) => {
       market_cap: null,
       volume: null,
       popularity_score: Math.max(1, 1000 - index),
+      isin: stock.isin || null,
     }));
     
     // Upsert stocks
