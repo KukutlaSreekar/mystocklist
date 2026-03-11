@@ -77,6 +77,7 @@ export type Database = {
           company_name: string | null
           created_at: string
           id: string
+          isin: string | null
           market: string
           market_cap: number | null
           popularity_score: number | null
@@ -89,6 +90,7 @@ export type Database = {
           company_name?: string | null
           created_at?: string
           id?: string
+          isin?: string | null
           market: string
           market_cap?: number | null
           popularity_score?: number | null
@@ -101,12 +103,40 @@ export type Database = {
           company_name?: string | null
           created_at?: string
           id?: string
+          isin?: string | null
           market?: string
           market_cap?: number | null
           popularity_score?: number | null
           symbol?: string
           updated_at?: string
           volume?: number | null
+        }
+        Relationships: []
+      }
+      symbol_aliases: {
+        Row: {
+          alias_symbol: string
+          canonical_symbol: string
+          created_at: string
+          id: string
+          isin: string | null
+          market: string
+        }
+        Insert: {
+          alias_symbol: string
+          canonical_symbol: string
+          created_at?: string
+          id?: string
+          isin?: string | null
+          market?: string
+        }
+        Update: {
+          alias_symbol?: string
+          canonical_symbol?: string
+          created_at?: string
+          id?: string
+          isin?: string | null
+          market?: string
         }
         Relationships: []
       }
@@ -148,6 +178,7 @@ export type Database = {
           company_name: string | null
           created_at: string
           id: string
+          isin: string | null
           market: string
           market_cap_category: string | null
           notes: string | null
@@ -161,6 +192,7 @@ export type Database = {
           company_name?: string | null
           created_at?: string
           id?: string
+          isin?: string | null
           market?: string
           market_cap_category?: string | null
           notes?: string | null
@@ -174,6 +206,7 @@ export type Database = {
           company_name?: string | null
           created_at?: string
           id?: string
+          isin?: string | null
           market?: string
           market_cap_category?: string | null
           notes?: string | null
