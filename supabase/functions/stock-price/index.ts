@@ -196,6 +196,22 @@ serve(async (req) => {
       );
     }
 
+    // Resolve symbol aliases
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    const allSymbols = symbols.map((s: any) => s.symbol);
+    const { data: aliases } = await supabase
+      .from('symbol_aliases')
+      .select('alias_symbol, canonical_symbol, market')
+      .in('alias_symbol', allSymbols);
+
+    const aliasMap: Record<string, string> = {};
+    for (const a of aliases || []) {
+      aliasMap[`${a.alias_symbol}:${a.market}`] = a.canonical_symbol;
+    }
+
     const prices: Record<string, PriceData> = {};
     const now = Date.now();
 
