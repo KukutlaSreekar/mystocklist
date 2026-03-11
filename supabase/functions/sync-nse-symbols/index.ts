@@ -20,6 +20,7 @@ interface StockRecord {
   market_cap: number | null;
   volume: number | null;
   popularity_score: number;
+  isin: string | null;
 }
 
 // Retry helper with exponential backoff
