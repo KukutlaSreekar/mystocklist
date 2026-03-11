@@ -278,6 +278,7 @@ async function upsertStocks(
           market_cap: s.market_cap,
           volume: s.volume,
           popularity_score: s.popularity_score,
+          isin: s.isin,
           updated_at: new Date().toISOString(),
         })),
         { onConflict: 'symbol,market' }
