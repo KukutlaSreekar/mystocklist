@@ -81,6 +81,15 @@ export default function Login() {
             "Sign in"
           )}
         </Button>
+
+        <div className="text-center">
+          <Link
+            to="/forgot-password"
+            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+          >
+            Forgot your password?
+          </Link>
+        </div>
       </form>
     </AuthLayout>
   );
