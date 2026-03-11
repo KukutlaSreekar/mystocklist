@@ -218,11 +218,14 @@ serve(async (req) => {
     // Fetch prices for each symbol
     await Promise.all(
       symbols.map(async (symbolData: { symbol: string; market: string }) => {
-        const { symbol, market: stockMarket } = symbolData;
+        const { symbol: originalSymbol, market: stockMarket } = symbolData;
+        
+        // Resolve alias to canonical symbol for fetching
+        const canonical = aliasMap[`${originalSymbol}:${stockMarket}`] || originalSymbol;
         
         // Build the correct symbol for Yahoo Finance
         const suffix = YAHOO_SUFFIX[stockMarket] || '';
-        const yahooSymbol = suffix ? `${symbol}${suffix}` : symbol;
+        const yahooSymbol = suffix ? `${canonical}${suffix}` : canonical;
         const cacheKey = `price:${yahooSymbol}`;
 
         // Check cache first
