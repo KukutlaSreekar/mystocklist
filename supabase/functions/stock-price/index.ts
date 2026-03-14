@@ -243,16 +243,20 @@ serve(async (req) => {
           const yahooData = await fetchYahooQuote(yahooSymbol);
           let priceData = parseYahooResponse(yahooData, stockMarket);
           
-          // If data is stale (>2 days old) or change is 0 with old data, try fallback
+          // If data is stale (>2 days old), try fallback for fresher data
+          // Don't fallback just because change is 0 — that's normal on weekends
           const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
-          if (priceData && (now - priceData.lastUpdated > TWO_DAYS || 
-              (priceData.change === 0 && priceData.changePercent === 0 && now - priceData.lastUpdated > 60 * 60 * 1000))) {
-            console.log(`Stale data for ${yahooSymbol}, trying fallback...`);
+          if (priceData && now - priceData.lastUpdated > TWO_DAYS) {
+            console.log(`Stale data for ${yahooSymbol} (>${Math.round((now - priceData.lastUpdated) / 86400000)}d old), trying fallback...`);
             const fallback = await fetchYahooQuoteSummary(yahooSymbol);
+            // Only use fallback if it has fresher data AND meaningful change info
             if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
               fallback.market = stockMarket;
-              priceData = fallback;
-              console.log(`Fallback succeeded for ${originalSymbol}: ${priceData.price}`);
+              // Prefer fallback only if it has non-zero change or is significantly newer
+              if (fallback.change !== 0 || fallback.lastUpdated - priceData.lastUpdated > 86400000) {
+                priceData = fallback;
+                console.log(`Fallback succeeded for ${originalSymbol}: ${priceData.price}`);
+              }
             }
           }
           
