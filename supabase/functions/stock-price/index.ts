@@ -122,31 +122,29 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
       return null;
     }
     
-    // Try to get the most recent valid close from the time series (range=5d)
-    // This helps when regularMarketPrice is stale
+    // Try to get the last two distinct trading day closes from the time series
     let bestPrice = regularMarketPrice;
     let bestTime = regularMarketTime ? regularMarketTime * 1000 : Date.now();
     let bestPrevClose = previousClose;
     
     if (timestamps && quotes && timestamps.length > 1) {
-      // Walk backwards to find most recent trading day with valid data
-      for (let i = timestamps.length - 1; i >= 0; i--) {
+      // Collect all valid daily closes
+      const validCloses: { price: number; time: number }[] = [];
+      for (let i = 0; i < timestamps.length; i++) {
         const close = quotes.close?.[i];
         if (close != null && close > 0) {
-          bestPrice = close;
-          bestTime = timestamps[i] * 1000;
-          // Use the previous day's close for change calculation
-          if (i > 0) {
-            for (let j = i - 1; j >= 0; j--) {
-              const prevClose = quotes.close?.[j];
-              if (prevClose != null && prevClose > 0) {
-                bestPrevClose = prevClose;
-                break;
-              }
-            }
-          }
-          break;
+          validCloses.push({ price: close, time: timestamps[i] * 1000 });
         }
+      }
+      
+      if (validCloses.length >= 2) {
+        // Use last two distinct trading days
+        bestPrice = validCloses[validCloses.length - 1].price;
+        bestTime = validCloses[validCloses.length - 1].time;
+        bestPrevClose = validCloses[validCloses.length - 2].price;
+      } else if (validCloses.length === 1) {
+        bestPrice = validCloses[0].price;
+        bestTime = validCloses[0].time;
       }
     }
     
