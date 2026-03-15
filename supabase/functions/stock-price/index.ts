@@ -137,7 +137,9 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
         }
       }
       
+      console.log(`[DEBUG] ${market} series: ${validCloses.length} valid closes out of ${timestamps.length} timestamps. meta.regPrice=${regularMarketPrice}, meta.prevClose=${previousClose}`);
       if (validCloses.length >= 2) {
+        console.log(`[DEBUG] Last 3 closes: ${validCloses.slice(-3).map(c => `${c.price}@${new Date(c.time).toISOString()}`).join(', ')}`);
         // Use last two distinct trading days
         bestPrice = validCloses[validCloses.length - 1].price;
         bestTime = validCloses[validCloses.length - 1].time;
@@ -146,6 +148,8 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
         bestPrice = validCloses[0].price;
         bestTime = validCloses[0].time;
       }
+    } else {
+      console.log(`[DEBUG] ${market} no time series: timestamps=${timestamps?.length}, quotes=${!!quotes}`);
     }
     
     const currentPrice = bestPrice || previousClose;
