@@ -47,8 +47,9 @@ const YAHOO_SUFFIX: Record<string, string> = {
 };
 
 async function fetchYahooQuote(symbol: string): Promise<any> {
-  // Use Yahoo Finance v8 chart API
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  // Use Yahoo Finance v8 chart API with 1mo range to ensure we get enough trading days
+  // (5d can fail during extended closures like weekends + holidays)
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1mo`;
   
   const response = await fetch(url, {
     headers: {
