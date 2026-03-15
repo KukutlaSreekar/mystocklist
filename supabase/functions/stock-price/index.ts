@@ -146,7 +146,7 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
         bestPrice = validCloses[validCloses.length - 1].price;
         bestTime = validCloses[validCloses.length - 1].time;
         bestPrevClose = validCloses[validCloses.length - 2].price;
-        console.log(`[DEBUG] Change calc: ${bestPrice} - ${bestPrevClose} = ${(bestPrice - bestPrevClose).toFixed(2)} (${validCloses.length} unique days)`);
+        console.log(`Change: ${bestPrice} - ${bestPrevClose} = ${(bestPrice - bestPrevClose).toFixed(2)}`);
       } else if (validCloses.length === 1) {
         bestPrice = validCloses[0].price;
         bestTime = validCloses[0].time;
