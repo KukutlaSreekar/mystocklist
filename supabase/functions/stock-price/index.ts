@@ -128,20 +128,25 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
     let bestPrevClose = previousClose;
     
     if (timestamps && quotes && timestamps.length > 1) {
-      // Collect all valid daily closes
-      const validCloses: { price: number; time: number }[] = [];
+      // Collect all valid daily closes, deduplicated by calendar date
+      // Yahoo can return multiple candles for the same trading day
+      const closesByDate = new Map<string, { price: number; time: number }>();
       for (let i = 0; i < timestamps.length; i++) {
         const close = quotes.close?.[i];
         if (close != null && close > 0) {
-          validCloses.push({ price: close, time: timestamps[i] * 1000 });
+          const dateKey = new Date(timestamps[i] * 1000).toISOString().slice(0, 10);
+          // Keep the latest entry for each date
+          closesByDate.set(dateKey, { price: close, time: timestamps[i] * 1000 });
         }
       }
       
+      const validCloses = Array.from(closesByDate.values());
+      
       if (validCloses.length >= 2) {
-        // Use last two distinct trading days
         bestPrice = validCloses[validCloses.length - 1].price;
         bestTime = validCloses[validCloses.length - 1].time;
         bestPrevClose = validCloses[validCloses.length - 2].price;
+        console.log(`Change: ${bestPrice} - ${bestPrevClose} = ${(bestPrice - bestPrevClose).toFixed(2)}`);
       } else if (validCloses.length === 1) {
         bestPrice = validCloses[0].price;
         bestTime = validCloses[0].time;
