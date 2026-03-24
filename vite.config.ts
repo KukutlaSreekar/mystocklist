@@ -12,7 +12,29 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [
+    react(),
+    mode === "development" && componentTagger(),
+    {
+      name: "spa-fallback",
+      apply: "serve",
+      configureServer(server) {
+        return () => {
+          server.middlewares.use((req, res, next) => {
+            // Rewrite all non-file routes to index.html for client-side routing
+            if (
+              req.url !== "/" &&
+              !req.url.includes(".") &&
+              !req.url.startsWith("/api")
+            ) {
+              req.url = "/index.html";
+            }
+            next();
+          });
+        };
+      },
+    },
+  ].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
