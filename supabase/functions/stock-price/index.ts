@@ -46,6 +46,74 @@ const YAHOO_SUFFIX: Record<string, string> = {
   TADAWUL: '.SR',
 };
 
+interface TradingHours {
+  timeZone: string;
+  openHour: number;
+  closeHour: number;
+}
+
+const MARKET_TRADING_HOURS: Record<string, TradingHours> = {
+  NYSE: { timeZone: 'America/New_York', openHour: 9.5, closeHour: 16 },
+  NASDAQ: { timeZone: 'America/New_York', openHour: 9.5, closeHour: 16 },
+  TSX: { timeZone: 'America/Toronto', openHour: 9.5, closeHour: 16 },
+  LSE: { timeZone: 'Europe/London', openHour: 8, closeHour: 16.5 },
+  XETRA: { timeZone: 'Europe/Berlin', openHour: 9, closeHour: 17.5 },
+  EURONEXT: { timeZone: 'Europe/Paris', openHour: 9, closeHour: 17.3 },
+  SIX: { timeZone: 'Europe/Zurich', openHour: 9, closeHour: 17.3 },
+  NSE: { timeZone: 'Asia/Kolkata', openHour: 9.25, closeHour: 15.5 },
+  BSE: { timeZone: 'Asia/Kolkata', openHour: 9.25, closeHour: 15.5 },
+  TSE: { timeZone: 'Asia/Tokyo', openHour: 9, closeHour: 15 },
+  HKEX: { timeZone: 'Asia/Hong_Kong', openHour: 9.5, closeHour: 16 },
+  SSE: { timeZone: 'Asia/Shanghai', openHour: 9.5, closeHour: 15 },
+  SZSE: { timeZone: 'Asia/Shanghai', openHour: 9.5, closeHour: 15 },
+  KRX: { timeZone: 'Asia/Seoul', openHour: 9, closeHour: 15.5 },
+  ASX: { timeZone: 'Australia/Sydney', openHour: 10, closeHour: 16 },
+  SGX: { timeZone: 'Asia/Singapore', openHour: 9, closeHour: 17 },
+  B3: { timeZone: 'America/Sao_Paulo', openHour: 10, closeHour: 17 },
+  JSE: { timeZone: 'Africa/Johannesburg', openHour: 9, closeHour: 17 },
+  MOEX: { timeZone: 'Europe/Moscow', openHour: 10, closeHour: 18.5 },
+  TADAWUL: { timeZone: 'Asia/Riyadh', openHour: 10, closeHour: 14.5 },
+};
+
+function getLocalTimeParts(date: Date, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const parts = formatter.formatToParts(date);
+  const values: Record<string, string> = {};
+
+  for (const part of parts) {
+    if (part.type !== 'literal') {
+      values[part.type] = part.value;
+    }
+  }
+
+  return {
+    weekday: values.weekday,
+    hour: Number(values.hour),
+    minute: Number(values.minute),
+  };
+}
+
+function isMarketOpenNow(market: string, now = Date.now()) {
+  const tradingHours = MARKET_TRADING_HOURS[market];
+  if (!tradingHours) return false;
+
+  const { timeZone, openHour, closeHour } = tradingHours;
+  const { weekday, hour, minute } = getLocalTimeParts(new Date(now), timeZone);
+  const currentTime = hour + minute / 60;
+
+  if (weekday === 'Sat' || weekday === 'Sun') return false;
+  return currentTime >= openHour && currentTime < closeHour;
+}
+
 async function fetchYahooQuote(symbol: string): Promise<any> {
   // Use Yahoo Finance v8 chart API with 1mo range to ensure we get enough trading days
   // (5d can fail during extended closures like weekends + holidays)
@@ -102,6 +170,12 @@ async function fetchYahooQuoteSummary(symbol: string): Promise<PriceData | null>
   } catch {
     return null;
   }
+}
+
+function shouldTryFallbackForLiveQuote(market: string, priceData: PriceData) {
+  if (!isMarketOpenNow(market)) return false;
+  const ageMs = Date.now() - priceData.lastUpdated;
+  return ageMs > 5 * 60 * 1000;
 }
 
 function parseYahooResponse(data: any, market: string): PriceData | null {
@@ -172,7 +246,11 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
     // Determine if market is closed
     const now = Date.now();
     const timeSinceLastTrade = now - bestTime;
-    const isMarketClosed = timeSinceLastTrade > 60 * 60 * 1000;
+    const marketHasHours = Boolean(MARKET_TRADING_HOURS[market]);
+    const marketOpen = marketHasHours ? isMarketOpenNow(market, now) : false;
+    const isMarketClosed = marketHasHours
+      ? (!marketOpen || timeSinceLastTrade > 60 * 60 * 1000)
+      : timeSinceLastTrade > 60 * 60 * 1000;
     
     return {
       price: Number(currentPrice.toFixed(2)),
@@ -255,6 +333,17 @@ serve(async (req) => {
           console.log(`Fetching price for ${yahooSymbol}`);
           const yahooData = await fetchYahooQuote(yahooSymbol);
           let priceData = parseYahooResponse(yahooData, stockMarket);
+
+          // If the market is currently open and the quote is stale, try a live 1m fallback.
+          if (priceData && shouldTryFallbackForLiveQuote(stockMarket, priceData)) {
+            console.log(`Open market stale data for ${yahooSymbol}, trying live fallback...`);
+            const fallback = await fetchYahooQuoteSummary(yahooSymbol);
+            if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
+              fallback.market = stockMarket;
+              priceData = fallback;
+              console.log(`Live fallback succeeded for ${originalSymbol}: ${priceData.price}`);
+            }
+          }
           
           // If data is stale (>2 days old), try fallback for fresher data
           // Don't fallback just because change is 0 — that's normal on weekends
