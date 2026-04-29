@@ -143,13 +143,22 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
       const validCloses = Array.from(closesByDate.values());
       
       if (validCloses.length >= 2) {
-        bestPrice = validCloses[validCloses.length - 1].price;
-        bestTime = validCloses[validCloses.length - 1].time;
-        bestPrevClose = validCloses[validCloses.length - 2].price;
+        const latestClose = validCloses[validCloses.length - 1];
+        const previousCloseEntry = validCloses[validCloses.length - 2];
+
+        // Prefer the live market timestamp when available.
+        if (!regularMarketTime || latestClose.time > bestTime) {
+          bestPrice = latestClose.price;
+          bestTime = latestClose.time;
+        }
+        bestPrevClose = previousCloseEntry.price;
         console.log(`Change: ${bestPrice} - ${bestPrevClose} = ${(bestPrice - bestPrevClose).toFixed(2)}`);
       } else if (validCloses.length === 1) {
-        bestPrice = validCloses[0].price;
-        bestTime = validCloses[0].time;
+        const latestClose = validCloses[0];
+        if (!regularMarketTime || latestClose.time > bestTime) {
+          bestPrice = latestClose.price;
+          bestTime = latestClose.time;
+        }
       }
     }
     
