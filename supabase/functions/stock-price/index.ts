@@ -249,7 +249,7 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
     const marketHasHours = Boolean(MARKET_TRADING_HOURS[market]);
     const marketOpen = marketHasHours ? isMarketOpenNow(market, now) : false;
     const isMarketClosed = marketHasHours
-      ? (!marketOpen || timeSinceLastTrade > 60 * 60 * 1000)
+      ? !marketOpen
       : timeSinceLastTrade > 60 * 60 * 1000;
     
     return {
