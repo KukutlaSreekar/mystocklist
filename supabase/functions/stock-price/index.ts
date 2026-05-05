@@ -133,7 +133,7 @@ async function fetchYahooQuote(symbol: string): Promise<any> {
 }
 
 // Fallback: use Yahoo Finance quote summary for fresher data
-async function fetchYahooQuoteSummary(symbol: string): Promise<PriceData | null> {
+async function fetchYahooQuoteSummary(symbol: string, market: string): Promise<PriceData | null> {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d`;
     const response = await fetch(url, {
@@ -156,14 +156,18 @@ async function fetchYahooQuoteSummary(symbol: string): Promise<PriceData | null>
     const changePct = prevClose ? (change / prevClose) * 100 : 0;
     const lastTime = meta?.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now();
     const isOld = Date.now() - lastTime > 60 * 60 * 1000;
+    const marketHasHours = Boolean(MARKET_TRADING_HOURS[market]);
+    const isMarketClosed = marketHasHours
+      ? !isMarketOpenNow(market)
+      : isOld;
     
     return {
       price: Number(price.toFixed(2)),
       change: Number(change.toFixed(2)),
       changePercent: Number(changePct.toFixed(2)),
       previousClose: Number((prevClose || price).toFixed(2)),
-      market: '',
-      isMarketClosed: isOld,
+      market,
+      isMarketClosed,
       lastUpdated: lastTime,
       companyName: meta?.shortName || meta?.longName || undefined,
     };
@@ -337,9 +341,8 @@ serve(async (req) => {
           // If the market is currently open and the quote is stale, try a live 1m fallback.
           if (priceData && shouldTryFallbackForLiveQuote(stockMarket, priceData)) {
             console.log(`Open market stale data for ${yahooSymbol}, trying live fallback...`);
-            const fallback = await fetchYahooQuoteSummary(yahooSymbol);
+            const fallback = await fetchYahooQuoteSummary(yahooSymbol, stockMarket);
             if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
-              fallback.market = stockMarket;
               priceData = fallback;
               console.log(`Live fallback succeeded for ${originalSymbol}: ${priceData.price}`);
             }
@@ -350,10 +353,9 @@ serve(async (req) => {
           const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
           if (priceData && now - priceData.lastUpdated > TWO_DAYS) {
             console.log(`Stale data for ${yahooSymbol} (>${Math.round((now - priceData.lastUpdated) / 86400000)}d old), trying fallback...`);
-            const fallback = await fetchYahooQuoteSummary(yahooSymbol);
+            const fallback = await fetchYahooQuoteSummary(yahooSymbol, stockMarket);
             // Only use fallback if it has fresher data AND meaningful change info
             if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
-              fallback.market = stockMarket;
               // Prefer fallback only if it has non-zero change or is significantly newer
               if (fallback.change !== 0 || fallback.lastUpdated - priceData.lastUpdated > 86400000) {
                 priceData = fallback;
