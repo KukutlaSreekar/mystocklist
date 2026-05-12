@@ -76,42 +76,47 @@ const MARKET_TRADING_HOURS: Record<string, TradingHours> = {
 };
 
 function getLocalTimeParts(date: Date, timeZone: string) {
-  const formatter = new Intl.DateTimeFormat('en-US', {
+  // Use toLocaleString with specific timezone to get accurate time
+  const timeString = date.toLocaleString('en-US', {
     timeZone,
-    hour12: false,
-    weekday: 'short',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   });
-  const parts = formatter.formatToParts(date);
-  const values: Record<string, string> = {};
+  
+  const weekdayString = date.toLocaleString('en-US', {
+    timeZone,
+    weekday: 'short',
+  });
 
-  for (const part of parts) {
-    if (part.type !== 'literal') {
-      values[part.type] = part.value;
-    }
-  }
+  const [hour, minute] = timeString.split(':').map(Number);
+
+  console.log(`[Market Status] Timezone: ${timeZone}, Weekday: ${weekdayString}, Time: ${hour}:${String(minute).padStart(2, '0')}`);
 
   return {
-    weekday: values.weekday,
-    hour: Number(values.hour),
-    minute: Number(values.minute),
+    weekday: weekdayString,
+    hour,
+    minute,
   };
 }
 
 function isMarketOpenNow(market: string, now = Date.now()) {
   const tradingHours = MARKET_TRADING_HOURS[market];
-  if (!tradingHours) return false;
+  if (!tradingHours) {
+    console.log(`[Market Status] No trading hours defined for market: ${market}`);
+    return false;
+  }
 
   const { timeZone, openHour, closeHour } = tradingHours;
   const { weekday, hour, minute } = getLocalTimeParts(new Date(now), timeZone);
   const currentTime = hour + minute / 60;
+  const isWeekend = weekday === 'Sat' || weekday === 'Sun';
+  const isWithinHours = currentTime >= openHour && currentTime < closeHour;
+  const isOpen = !isWeekend && isWithinHours;
 
-  if (weekday === 'Sat' || weekday === 'Sun') return false;
-  return currentTime >= openHour && currentTime < closeHour;
+  console.log(`[Market Status] Market: ${market}, IsWeekend: ${isWeekend}, Time: ${currentTime.toFixed(2)}, Hours: ${openHour}-${closeHour}, IsOpen: ${isOpen}`);
+
+  return isOpen;
 }
 
 async function fetchYahooQuote(symbol: string): Promise<any> {
@@ -372,14 +377,14 @@ serve(async (req) => {
             console.error(`No price data parsed for ${yahooSymbol}`);
             // Use cached data as fallback if available
             if (cached) {
-              prices[originalSymbol] = { ...cached.data, isMarketClosed: true };
+              prices[originalSymbol] = { ...cached.data, isMarketClosed: !isMarketOpenNow(stockMarket, now) };
             }
           }
         } catch (err) {
           console.error(`Error fetching price for ${yahooSymbol}:`, err);
           // Use cached data as fallback if available
           if (cached) {
-            prices[originalSymbol] = { ...cached.data, isMarketClosed: true };
+            prices[originalSymbol] = { ...cached.data, isMarketClosed: !isMarketOpenNow(stockMarket, now) };
           }
         }
       })
