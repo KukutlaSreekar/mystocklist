@@ -298,6 +298,10 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
     const timeSinceLastTrade = now - bestTime;
     const marketHasHours = Boolean(MARKET_TRADING_HOURS[market]);
     const marketOpen = marketHasHours ? isMarketOpenNow(market, now) : false;
+    const regularSessionEnd = getRegularSessionEnd(result);
+    if (!marketOpen && regularSessionEnd && regularSessionEnd <= now) {
+      bestTime = Math.max(bestTime, regularSessionEnd);
+    }
     const isMarketClosed = marketHasHours
       ? !marketOpen
       : timeSinceLastTrade > 60 * 60 * 1000;
