@@ -25,7 +25,7 @@ function getLocalTimeParts(date: Date, timeZone: string) {
   }
   return {
     weekday: values.weekday,
-    hour: Number(values.hour),
+    hour: Number(values.hour) % 24,
     minute: Number(values.minute),
   };
 }
@@ -62,5 +62,15 @@ describe("Market Status Logic", () => {
 
     expect(isMarketOpenNow('NSE', saturday.getTime())).toBe(false);
     expect(isMarketOpenNow('NYSE', saturday.getTime())).toBe(false);
+  });
+
+  it("should keep NSE/BSE live from 09:15 until 15:30 IST", () => {
+    const marketOpen = new Date('2026-05-05T03:45:00.000Z'); // 09:15 IST
+    const beforeClose = new Date('2026-05-05T09:59:00.000Z'); // 15:29 IST
+    const atClose = new Date('2026-05-05T10:00:00.000Z'); // 15:30 IST
+
+    expect(isMarketOpenNow('NSE', marketOpen.getTime())).toBe(true);
+    expect(isMarketOpenNow('BSE', beforeClose.getTime())).toBe(true);
+    expect(isMarketOpenNow('NSE', atClose.getTime())).toBe(false);
   });
 });
