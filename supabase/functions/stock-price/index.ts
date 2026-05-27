@@ -150,6 +150,27 @@ async function fetchYahooQuote(symbol: string): Promise<any> {
   return await response.json();
 }
 
+function getRegularSessionEnd(result: any): number | null {
+  const end = result?.meta?.currentTradingPeriod?.regular?.end;
+  return typeof end === 'number' ? end * 1000 : null;
+}
+
+function getLatestIntradayClose(result: any): { price: number; time: number } | null {
+  const timestamps = result?.timestamp;
+  const closes = result?.indicators?.quote?.[0]?.close;
+  if (!Array.isArray(timestamps) || !Array.isArray(closes)) return null;
+
+  for (let i = closes.length - 1; i >= 0; i--) {
+    const close = closes[i];
+    const timestamp = timestamps[i];
+    if (typeof close === 'number' && close > 0 && typeof timestamp === 'number') {
+      return { price: close, time: timestamp * 1000 };
+    }
+  }
+
+  return null;
+}
+
 // Fallback: use Yahoo Finance quote summary for fresher data
 async function fetchYahooQuoteSummary(symbol: string, market: string): Promise<PriceData | null> {
   try {
@@ -166,17 +187,24 @@ async function fetchYahooQuoteSummary(symbol: string, market: string): Promise<P
     if (!result) return null;
     
     const meta = result.meta;
-    const price = meta?.regularMarketPrice;
+    const latestIntraday = getLatestIntradayClose(result);
+    const price = latestIntraday?.price || meta?.regularMarketPrice;
     const prevClose = meta?.previousClose || meta?.chartPreviousClose;
     if (!price) return null;
     
     const change = prevClose ? price - prevClose : 0;
     const changePct = prevClose ? (change / prevClose) * 100 : 0;
-    const lastTime = meta?.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now();
-    const isOld = Date.now() - lastTime > 60 * 60 * 1000;
+    const metaTime = meta?.regularMarketTime ? meta.regularMarketTime * 1000 : 0;
+    const regularSessionEnd = getRegularSessionEnd(result);
     const marketHasHours = Boolean(MARKET_TRADING_HOURS[market]);
+    const marketOpen = marketHasHours ? isMarketOpenNow(market) : false;
+    let lastTime = Math.max(latestIntraday?.time || 0, metaTime || 0) || Date.now();
+    if (!marketOpen && regularSessionEnd && regularSessionEnd <= Date.now()) {
+      lastTime = Math.max(lastTime, regularSessionEnd);
+    }
+    const isOld = Date.now() - lastTime > 60 * 60 * 1000;
     const isMarketClosed = marketHasHours
-      ? !isMarketOpenNow(market)
+      ? !marketOpen
       : isOld;
     
     return {
