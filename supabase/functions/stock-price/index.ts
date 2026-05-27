@@ -76,20 +76,22 @@ const MARKET_TRADING_HOURS: Record<string, TradingHours> = {
 };
 
 function getLocalTimeParts(date: Date, timeZone: string) {
-  // Use toLocaleString with specific timezone to get accurate time
-  const timeString = date.toLocaleString('en-US', {
+  const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone,
+    hour12: false,
+    weekday: 'short',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
   });
-  
-  const weekdayString = date.toLocaleString('en-US', {
-    timeZone,
-    weekday: 'short',
-  });
+  const parts = formatter.formatToParts(date);
+  const values: Record<string, string> = {};
+  for (const part of parts) {
+    if (part.type !== 'literal') values[part.type] = part.value;
+  }
 
-  const [hour, minute] = timeString.split(':').map(Number);
+  const hour = Number(values.hour) % 24;
+  const minute = Number(values.minute);
+  const weekdayString = values.weekday;
 
   console.log(`[Market Status] Timezone: ${timeZone}, Weekday: ${weekdayString}, Time: ${hour}:${String(minute).padStart(2, '0')}`);
 
@@ -98,6 +100,17 @@ function getLocalTimeParts(date: Date, timeZone: string) {
     hour,
     minute,
   };
+}
+
+function getCacheTtlForMarket(market: string, cachedData: PriceData, now: number) {
+  const tradingHours = MARKET_TRADING_HOURS[market];
+  if (!tradingHours) return cachedData.isMarketClosed ? CACHE_TTL_CLOSED : CACHE_TTL_LIVE;
+
+  const marketOpen = isMarketOpenNow(market, now);
+  const cachedStateChanged = cachedData.isMarketClosed === marketOpen;
+  if (cachedStateChanged) return 0;
+
+  return marketOpen ? CACHE_TTL_LIVE : CACHE_TTL_CLOSED;
 }
 
 function isMarketOpenNow(market: string, now = Date.now()) {
