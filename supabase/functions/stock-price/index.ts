@@ -344,7 +344,7 @@ serve(async (req) => {
         // Check cache first
         const cached = priceCache.get(cacheKey);
         if (cached) {
-          const cacheTTL = cached.data.isMarketClosed ? CACHE_TTL_CLOSED : CACHE_TTL_LIVE;
+          const cacheTTL = getCacheTtlForMarket(stockMarket, cached.data, now);
           if (now - cached.timestamp < cacheTTL) {
             prices[originalSymbol] = cached.data;
             return;
