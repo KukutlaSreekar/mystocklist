@@ -305,14 +305,32 @@ export function WatchlistTable({
                         <Minus className="w-4 h-4 text-primary" />
                       )}
                     </div>
-                    <div>
-                      <div className="font-mono font-bold text-foreground">{stock.symbol}</div>
-                      {(stock.company_name || price?.companyName) && (
-                        <div className="text-sm text-muted-foreground truncate max-w-[200px]">
-                          {stock.company_name || price?.companyName}
-                        </div>
-                      )}
-                    </div>
+                    {stock.notes ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="cursor-help">
+                            <div className="font-mono font-bold text-foreground">{stock.symbol}</div>
+                            {(stock.company_name || price?.companyName) && (
+                              <div className="text-sm text-muted-foreground truncate max-w-[200px] underline decoration-dotted decoration-muted-foreground/40 underline-offset-4">
+                                {stock.company_name || price?.companyName}
+                              </div>
+                            )}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs">
+                          <p className="text-xs whitespace-pre-wrap">{stock.notes}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <div>
+                        <div className="font-mono font-bold text-foreground">{stock.symbol}</div>
+                        {(stock.company_name || price?.companyName) && (
+                          <div className="text-sm text-muted-foreground truncate max-w-[200px]">
+                            {stock.company_name || price?.companyName}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
