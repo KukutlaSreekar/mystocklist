@@ -162,11 +162,25 @@ function isMarketLive(result: any, market: string, now = Date.now()): boolean {
   const marketState: string | undefined = result?.meta?.marketState;
   const sessionStart = getRegularSessionStart(result);
   const sessionEnd = getRegularSessionEnd(result);
+  const regularMarketTime: number | undefined = result?.meta?.regularMarketTime
+    ? result.meta.regularMarketTime * 1000
+    : undefined;
 
   if (sessionStart && sessionEnd) {
     const within = now >= sessionStart && now < sessionEnd;
     if (!within) return false;
     if (marketState && marketState !== 'REGULAR') return false;
+    // Holiday detection: if today's session is supposedly open but Yahoo's
+    // last trade timestamp is from before today's session start, no trading
+    // is actually happening (e.g. NSE/BSE holiday). Allow a 5min grace at
+    // open so the first prints aren't misread.
+    if (
+      regularMarketTime !== undefined &&
+      regularMarketTime < sessionStart &&
+      now - sessionStart > 5 * 60 * 1000
+    ) {
+      return false;
+    }
     return true;
   }
 
