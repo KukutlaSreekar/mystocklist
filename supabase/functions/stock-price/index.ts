@@ -103,14 +103,10 @@ function getLocalTimeParts(date: Date, timeZone: string) {
 }
 
 function getCacheTtlForMarket(market: string, cachedData: PriceData, now: number) {
-  const tradingHours = MARKET_TRADING_HOURS[market];
-  if (!tradingHours) return cachedData.isMarketClosed ? CACHE_TTL_CLOSED : CACHE_TTL_LIVE;
-
-  const marketOpen = isMarketOpenNow(market, now);
-  const cachedStateChanged = cachedData.isMarketClosed === marketOpen;
-  if (cachedStateChanged) return 0;
-
-  return marketOpen ? CACHE_TTL_LIVE : CACHE_TTL_CLOSED;
+  // Cache TTL is decided by what Yahoo told us last time. When the market is
+  // live we refresh every 30s; when closed (incl. holidays/weekends) we keep
+  // data for an hour. Holiday detection comes from Yahoo's session window.
+  return cachedData.isMarketClosed ? CACHE_TTL_CLOSED : CACHE_TTL_LIVE;
 }
 
 function isMarketOpenNow(market: string, now = Date.now()) {
@@ -155,6 +151,28 @@ function getRegularSessionEnd(result: any): number | null {
   return typeof end === 'number' ? end * 1000 : null;
 }
 
+function getRegularSessionStart(result: any): number | null {
+  const start = result?.meta?.currentTradingPeriod?.regular?.start;
+  return typeof start === 'number' ? start * 1000 : null;
+}
+
+// Determine if the market is actually trading right now, using Yahoo's
+// session info (which accounts for holidays) with our static hours as fallback.
+function isMarketLive(result: any, market: string, now = Date.now()): boolean {
+  const marketState: string | undefined = result?.meta?.marketState;
+  const sessionStart = getRegularSessionStart(result);
+  const sessionEnd = getRegularSessionEnd(result);
+
+  if (sessionStart && sessionEnd) {
+    const within = now >= sessionStart && now < sessionEnd;
+    if (!within) return false;
+    if (marketState && marketState !== 'REGULAR') return false;
+    return true;
+  }
+
+  return isMarketOpenNow(market, now);
+}
+
 function getLatestIntradayClose(result: any): { price: number; time: number } | null {
   const timestamps = result?.timestamp;
   const closes = result?.indicators?.quote?.[0]?.close;
@@ -196,16 +214,12 @@ async function fetchYahooQuoteSummary(symbol: string, market: string): Promise<P
     const changePct = prevClose ? (change / prevClose) * 100 : 0;
     const metaTime = meta?.regularMarketTime ? meta.regularMarketTime * 1000 : 0;
     const regularSessionEnd = getRegularSessionEnd(result);
-    const marketHasHours = Boolean(MARKET_TRADING_HOURS[market]);
-    const marketOpen = marketHasHours ? isMarketOpenNow(market) : false;
+    const marketLive = isMarketLive(result, market);
     let lastTime = Math.max(latestIntraday?.time || 0, metaTime || 0) || Date.now();
-    if (!marketOpen && regularSessionEnd && regularSessionEnd <= Date.now()) {
+    if (!marketLive && regularSessionEnd && regularSessionEnd <= Date.now()) {
       lastTime = Math.max(lastTime, regularSessionEnd);
     }
-    const isOld = Date.now() - lastTime > 60 * 60 * 1000;
-    const isMarketClosed = marketHasHours
-      ? !marketOpen
-      : isOld;
+    const isMarketClosed = !marketLive;
     
     return {
       price: Number(price.toFixed(2)),
@@ -222,8 +236,8 @@ async function fetchYahooQuoteSummary(symbol: string, market: string): Promise<P
   }
 }
 
-function shouldTryFallbackForLiveQuote(market: string, priceData: PriceData) {
-  if (!isMarketOpenNow(market)) return false;
+function shouldTryFallbackForLiveQuote(priceData: PriceData) {
+  if (priceData.isMarketClosed) return false;
   const ageMs = Date.now() - priceData.lastUpdated;
   return ageMs > 5 * 60 * 1000;
 }
@@ -295,16 +309,12 @@ function parseYahooResponse(data: any, market: string): PriceData | null {
     
     // Determine if market is closed
     const now = Date.now();
-    const timeSinceLastTrade = now - bestTime;
-    const marketHasHours = Boolean(MARKET_TRADING_HOURS[market]);
-    const marketOpen = marketHasHours ? isMarketOpenNow(market, now) : false;
+    const marketLive = isMarketLive(result, market, now);
     const regularSessionEnd = getRegularSessionEnd(result);
-    if (!marketOpen && regularSessionEnd && regularSessionEnd <= now) {
+    if (!marketLive && regularSessionEnd && regularSessionEnd <= now) {
       bestTime = Math.max(bestTime, regularSessionEnd);
     }
-    const isMarketClosed = marketHasHours
-      ? !marketOpen
-      : timeSinceLastTrade > 60 * 60 * 1000;
+    const isMarketClosed = !marketLive;
     
     return {
       price: Number(currentPrice.toFixed(2)),
@@ -376,7 +386,7 @@ serve(async (req) => {
         // Check cache first
         const cached = priceCache.get(cacheKey);
         if (cached) {
-          const cacheTTL = getCacheTtlForMarket(stockMarket, cached.data, now);
+          const cacheTTL = getCacheTtlForMarket(cached.data, now);
           if (now - cached.timestamp < cacheTTL) {
             prices[originalSymbol] = cached.data;
             return;
@@ -389,7 +399,7 @@ serve(async (req) => {
           let priceData = parseYahooResponse(yahooData, stockMarket);
 
           // If the market is currently open and the quote is stale, try a live 1m fallback.
-          if (priceData && shouldTryFallbackForLiveQuote(stockMarket, priceData)) {
+          if (priceData && shouldTryFallbackForLiveQuote(priceData)) {
             console.log(`Open market stale data for ${yahooSymbol}, trying live fallback...`);
             const fallback = await fetchYahooQuoteSummary(yahooSymbol, stockMarket);
             if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
@@ -422,14 +432,14 @@ serve(async (req) => {
             console.error(`No price data parsed for ${yahooSymbol}`);
             // Use cached data as fallback if available
             if (cached) {
-              prices[originalSymbol] = { ...cached.data, isMarketClosed: !isMarketOpenNow(stockMarket, now) };
+              prices[originalSymbol] = cached.data;
             }
           }
         } catch (err) {
           console.error(`Error fetching price for ${yahooSymbol}:`, err);
           // Use cached data as fallback if available
           if (cached) {
-            prices[originalSymbol] = { ...cached.data, isMarketClosed: !isMarketOpenNow(stockMarket, now) };
+            prices[originalSymbol] = cached.data;
           }
         }
       })
