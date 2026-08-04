@@ -102,7 +102,7 @@ function getLocalTimeParts(date: Date, timeZone: string) {
   };
 }
 
-function getCacheTtlForMarket(market: string, cachedData: PriceData, now: number) {
+function getCacheTtlForMarket(cachedData: PriceData) {
   // Cache TTL is decided by what Yahoo told us last time. When the market is
   // live we refresh every 30s; when closed (incl. holidays/weekends) we keep
   // data for an hour. Holiday detection comes from Yahoo's session window.
@@ -203,7 +203,9 @@ function getLatestIntradayClose(result: any): { price: number; time: number } | 
   return null;
 }
 
-// Fallback: use Yahoo Finance quote summary for fresher data
+// Primary source: Yahoo Finance intraday chart (1m/1d). Its meta carries the
+// real-time price AND the correct previous close, which the daily (1mo) chart
+// frequently gets wrong (adjusted/None values, missing holiday candles).
 async function fetchYahooQuoteSummary(symbol: string, market: string): Promise<PriceData | null> {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d`;
@@ -220,13 +222,21 @@ async function fetchYahooQuoteSummary(symbol: string, market: string): Promise<P
     
     const meta = result.meta;
     const latestIntraday = getLatestIntradayClose(result);
-    const price = latestIntraday?.price || meta?.regularMarketPrice;
-    const prevClose = meta?.previousClose || meta?.chartPreviousClose;
+    const metaTimeMs = meta?.regularMarketTime ? meta.regularMarketTime * 1000 : 0;
+    // Prefer the live quote price; only use the last intraday candle if it is newer.
+    let price = meta?.regularMarketPrice;
+    if (
+      latestIntraday &&
+      (price == null || (metaTimeMs && latestIntraday.time > metaTimeMs))
+    ) {
+      price = latestIntraday.price;
+    }
+    const prevClose = meta?.chartPreviousClose ?? meta?.previousClose;
     if (!price) return null;
     
     const change = prevClose ? price - prevClose : 0;
     const changePct = prevClose ? (change / prevClose) * 100 : 0;
-    const metaTime = meta?.regularMarketTime ? meta.regularMarketTime * 1000 : 0;
+    const metaTime = metaTimeMs;
     const regularSessionEnd = getRegularSessionEnd(result);
     const marketLive = isMarketLive(result, market);
     let lastTime = Math.max(latestIntraday?.time || 0, metaTime || 0) || Date.now();
