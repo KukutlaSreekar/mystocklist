@@ -410,7 +410,7 @@ serve(async (req) => {
         // Check cache first
         const cached = priceCache.get(cacheKey);
         if (cached) {
-          const cacheTTL = getCacheTtlForMarket(cached.data, now);
+          const cacheTTL = getCacheTtlForMarket(cached.data);
           if (now - cached.timestamp < cacheTTL) {
             prices[originalSymbol] = cached.data;
             return;
@@ -419,33 +419,23 @@ serve(async (req) => {
 
         try {
           console.log(`Fetching price for ${yahooSymbol}`);
-          const yahooData = await fetchYahooQuote(yahooSymbol);
-          let priceData = parseYahooResponse(yahooData, stockMarket);
 
-          // If the market is currently open and the quote is stale, try a live 1m fallback.
-          if (priceData && shouldTryFallbackForLiveQuote(priceData)) {
-            console.log(`Open market stale data for ${yahooSymbol}, trying live fallback...`);
-            const fallback = await fetchYahooQuoteSummary(yahooSymbol, stockMarket);
-            if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
-              priceData = fallback;
-              console.log(`Live fallback succeeded for ${originalSymbol}: ${priceData.price}`);
-            }
-          }
-          
-          // If data is stale (>2 days old), try fallback for fresher data
-          // Don't fallback just because change is 0 — that's normal on weekends
-          const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
-          if (priceData && now - priceData.lastUpdated > TWO_DAYS) {
-            console.log(`Stale data for ${yahooSymbol} (>${Math.round((now - priceData.lastUpdated) / 86400000)}d old), trying fallback...`);
-            const fallback = await fetchYahooQuoteSummary(yahooSymbol, stockMarket);
-            // Only use fallback if it has fresher data AND meaningful change info
-            if (fallback && fallback.lastUpdated > priceData.lastUpdated) {
-              // Prefer fallback only if it has non-zero change or is significantly newer
-              if (fallback.change !== 0 || fallback.lastUpdated - priceData.lastUpdated > 86400000) {
-                priceData = fallback;
-                console.log(`Fallback succeeded for ${originalSymbol}: ${priceData.price}`);
-              }
-            }
+          // Primary: intraday (1m/1d) quote — real-time price + correct previous close.
+          let priceData = await fetchYahooQuoteSummary(yahooSymbol, stockMarket);
+
+          // Fallback: daily (1mo) chart, used when intraday returns nothing
+          // (long closures, illiquid tickers) or looks unusable.
+          if (!priceData || !priceData.price) {
+            console.log(`No intraday quote for ${yahooSymbol}, using daily chart...`);
+            const yahooData = await fetchYahooQuote(yahooSymbol);
+            const daily = parseYahooResponse(yahooData, stockMarket);
+            if (daily) priceData = daily;
+          } else if (shouldTryFallbackForLiveQuote(priceData)) {
+            // Market open but the intraday quote is stale — cross-check daily chart.
+            console.log(`Stale intraday quote for ${yahooSymbol}, cross-checking daily chart...`);
+            const yahooData = await fetchYahooQuote(yahooSymbol);
+            const daily = parseYahooResponse(yahooData, stockMarket);
+            if (daily && daily.lastUpdated > priceData.lastUpdated) priceData = daily;
           }
           
           if (priceData) {
